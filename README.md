@@ -67,7 +67,7 @@ Everything snaps to a 2px grid, typed values included (13 becomes 14). The value
 **Auto layout** (flow: freeform, vertical, horizontal, grid, wrap; resizing W and H as Fixed, Hug or Fill; the nine-dot alignment; gap, or Auto for space-between; padding horizontal and vertical, or all four sides; clip content),
 **Appearance** (opacity, corner radius, hide), **Typography** (font, weight, size, line height, letter spacing, alignment; shown for text),
 **Fill**, **Stroke** and **Effects** (an empty one is a title and a +; colours keep hex and opacity apart; effects are box-shadow), and **Selection colors** (every colour inside the selection; change one and it changes everywhere it is used).
-Click a swatch to unfold PERMANENT ui's colour picker with presets, a saturation/brightness field, a hue strip, hex and an eyedropper, or type hex, rgba or none in the field. Margins stay on the canvas (Spacing's bands), as Figma has none.
+A colour that comes from a CSS variable shows the variable's name, like Figma's variables; hover the row and click the detach icon to write the colour out instead. Click a swatch for Figma's colour picker beside the panel: Custom has the saturation/brightness field, the eyedropper, hue and opacity bars, the value as Hex, RGB, HSL or CSS, and the colours used on this page; Libraries lists the page's colour variables, and choosing one attaches it. The prompt names the variable an edit replaces, as in `var(--card) (#1c1c1c) → #ff0000`. Margins stay on the canvas (Spacing's bands), as Figma has none.
 Type a value, step with `↑` `↓`, `Tab` between fields, or drag a field's label to scrub, like Figma's
 design sidebar.
 

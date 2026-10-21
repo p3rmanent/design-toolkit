@@ -197,6 +197,10 @@
     strokeW: pi('<rect x="6" y="7" width="12" height="1"/><rect x="6" y="11" width="12" height="1.5"/><rect x="6" y="15" width="12" height="2"/>'),
     shadow: pi('<rect class="s" x="6.5" y="6.5" width="9" height="9" rx="1"/><path class="s" d="M17.5 9v8.5H9"/>'),
     chevron: pi('<path class="s" d="m8.5 10.5 3.5 3.5 3.5-3.5"/>'),
+    detach: pi('<path class="s" d="m10.5 8.5 1-1a3 3 0 0 1 4.2 4.2l-1 1m-1.2 2.8-1 1a3 3 0 0 1-4.2-4.2l1-1M7 7l1.8 1.8M17 17l-1.8-1.8"/>'),
+    close: pi('<path class="s" d="m7.5 7.5 9 9m0-9-9 9"/>'),
+    drop: pi('<path class="s" d="m13.5 8 2.5 2.5M7 17.5l.6-2.4 6.2-6.2 1.8 1.8-6.2 6.2-2.4.6Zm8-11.2 1.2-1.2a1.7 1.7 0 0 1 2.4 2.4L17.4 8.7"/>'),
+    check: pi('<path class="s" d="m7 12.5 3 3 7-7"/>'),
   };
   /* Auto layout alignment: three bars, laid out along the flow, pushed to the chosen side. */
   const alignBars = (col, i) =>
@@ -456,10 +460,8 @@
       .panel .hint { margin: 0; padding: 16px; color: var(--fg2); }
       .panel[data-empty] section, .panel:not([data-empty]) .hint { display: none; }
       .panel [hidden] { display: none !important; }
-      .panel header { display: grid; gap: 2px; padding: 12px 8px 12px 16px; }
-      .panel .el { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .panel .comp { color: var(--fg2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .panel section { border-top: 1px solid var(--line); padding: 0 0 12px; }
+      .panel section:first-of-type { border-top: 0; }
       .panel section[data-none] { padding-bottom: 0; }
       .panel h4 { all: unset; display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 8px 0 16px; font-weight: 600; }
       .panel section[data-none] h4 { color: var(--fg2); font-weight: 450; }
@@ -539,6 +541,14 @@
       .panel .cf .f.a input { padding-right: 2px; }
       .panel .cf .f.a .pct { padding-right: 8px; color: var(--fg2); }
       .panel .f.c input { text-transform: uppercase; }
+      /* A colour that comes from a CSS variable shows the variable, like Figma; detach on hover. */
+      .panel .f.c .vn { display: none; min-width: 0; margin-right: auto; padding: 0 4px; border-radius: 3px; background: rgba(var(--ink-rgb), .07); line-height: 18px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: default; }
+      .panel .f.c[data-var] input { display: none; }
+      .panel .f.c[data-var] .vn { display: block; }
+      .panel .f.c .dt { display: none; flex: none; width: 20px; height: 20px; margin-right: 2px; }
+      .panel .f.c .dt svg { width: 20px; height: 20px; }
+      .panel .f.c[data-var]:hover .dt, .panel .f.c[data-var]:focus-within .dt { display: grid; }
       .panel .f.c .sw { all: unset; box-sizing: border-box; position: relative; flex: none; width: 14px; height: 14px; border-radius: 2px;
         box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), .1);
         background-image: linear-gradient(var(--sw, transparent), var(--sw, transparent)), repeating-conic-gradient(rgba(var(--ink-rgb), .2) 0 25%, transparent 0 50%);
@@ -549,46 +559,74 @@
       .panel .erow .ic { flex: none; display: grid; place-items: center; width: 24px; height: 24px; color: var(--fg2); }
       .panel .erow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .panel .erow .val { color: var(--fg2); font-variant-numeric: tabular-nums; white-space: nowrap; }
-      .panel .cp { margin: 4px 8px 8px 16px; }
 
-      /* PERMANENT ui's colour picker, unfolded in place under the field: presets, a saturation/brightness
-         field, a hue strip, then hex and the eyedropper. Hue is kept while dragging through grey or black. */
-      .cp { display: grid; gap: 12px; margin-top: 8px; padding: 10px; border-radius: 10px; background: rgba(var(--ink-rgb), .06);
-        animation: cp-open .32s cubic-bezier(.23, 1, .32, 1) both; }
-      @keyframes cp-open { from { opacity: 0; transform: translateY(-4px); } }
-      .cp-presets { display: flex; justify-content: space-between; }
-      .cp-preset { all: unset; position: relative; width: 18px; height: 18px; border-radius: 999px; background: var(--c); cursor: pointer;
-        box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), .1); transition: scale .15s cubic-bezier(.23, 1, .32, 1); }
-      .cp-preset[aria-checked="true"] { box-shadow: 0 0 0 2px rgb(var(--elev-rgb)), 0 0 0 4px var(--c); }
-      .cp-preset:hover { scale: 1.12; }
-      .cp-preset:active { scale: .96; }
-      .cp-preset::before { content: ""; position: absolute; inset: -4px; }
-      .cp-preset:focus-visible { outline: 2px solid ${BLUE}; outline-offset: 4px; }
-      .cp-field { position: relative; height: 128px; border-radius: 6px; cursor: crosshair; touch-action: none;
+      /* Figma's colour picker: a popover beside the panel. Custom is the field, hue, opacity and value;
+         Libraries lists the page's colour variables. */
+      .cp {
+        position: fixed; z-index: 2147483647; width: 240px; max-height: calc(100vh - 16px); overflow: auto; overscroll-behavior: contain; border-radius: 13px;
+        background: rgb(var(--panel-rgb)); color: rgba(var(--ink-rgb), .9);
+        box-shadow: 0 0 0 .5px rgba(0, 0, 0, .25), 0 2px 5px rgba(0, 0, 0, .15), 0 10px 24px rgba(0, 0, 0, .2);
+        font: 450 11px/16px Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; letter-spacing: .005em; -webkit-font-smoothing: antialiased; user-select: none;
+        --fbg: rgba(var(--ink-rgb), .05); --line: rgba(var(--ink-rgb), .1); --fg2: rgba(var(--ink-rgb), .5); --fblue: #0d99ff;
+        animation: cp-open .18s cubic-bezier(.23, 1, .32, 1) both;
+      }
+      @keyframes cp-open { from { opacity: 0; transform: translateX(4px); } }
+      .cp [hidden] { display: none !important; }
+      .cp svg { display: block; width: 24px; height: 24px; flex: none; }
+      .cp svg .s { fill: none; stroke: currentColor; stroke-width: 1; }
+      :where(.cp) button { all: unset; box-sizing: border-box; }
+      .cp button:focus-visible, .cp [role="slider"]:focus-visible { outline: 1px solid var(--fblue); outline-offset: 1px; }
+      .cp-head { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+      .cp-tabs { display: flex; gap: 2px; }
+      .cp-tabs button { height: 24px; padding: 0 8px; border-radius: 5px; color: var(--fg2); font-weight: 450; }
+      .cp-tabs button:hover { color: rgba(var(--ink-rgb), .9); }
+      .cp-tabs button[aria-selected="true"] { background: var(--fbg); color: rgba(var(--ink-rgb), .9); font-weight: 600; }
+      .cp-x { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 5px; }
+      .cp-x:hover { background: var(--fbg); }
+      .cp-pane { padding: 16px; }
+      .cp-field { position: relative; aspect-ratio: 1; border-radius: 2px; cursor: crosshair; touch-action: none;
         background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, var(--hue));
-        box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), .08); }
-      .cp-hue { position: relative; height: 12px; margin: 0 6px; border-radius: 999px; cursor: ew-resize; touch-action: none;
-        background: linear-gradient(to right, #f00, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00); }
-      .cp-hue::before { content: ""; position: absolute; inset: 0 -6px; border-radius: inherit; background: inherit; }
-      .cp-hue::after { content: ""; position: absolute; inset: -10px -6px; }
-      .cp-field:focus-visible, .cp-hue:focus-visible { outline: 2px solid ${BLUE}; outline-offset: 3px; }
-      .cp-knob { position: absolute; z-index: 1; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 999px; pointer-events: none;
-        box-shadow: 0 0 0 2.5px #fff, 0 0 0 3.5px rgba(0, 0, 0, .18), 0 2px 8px rgba(0, 0, 0, .35); transition: scale .15s cubic-bezier(.23, 1, .32, 1); }
-      .cp-field:active .cp-knob, .cp-hue:active .cp-knob { scale: 1.15; }
-      .cp-foot { display: flex; gap: 6px; }
-      .cp-hexf { display: flex; flex: 1; align-items: center; gap: 2px; height: 28px; padding: 0 10px; border-radius: 999px;
-        background: rgb(var(--elev-rgb)); box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), .1); color: rgba(var(--ink-rgb), .4);
-        font: 400 12px/1 ui-monospace, "SF Mono", Menlo, monospace; }
-      .cp-hexf:focus-within { box-shadow: inset 0 0 0 1px ${BLUE}; }
-      .cp-hexf input { all: unset; flex: 1; min-width: 0; color: rgba(var(--ink-rgb), .9); text-transform: lowercase; cursor: text; }
-      .cp-drop { all: unset; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; cursor: pointer;
-        background: rgb(var(--elev-rgb)); box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), .1); color: rgba(var(--ink-rgb), .6);
-        transition: color .15s, scale .15s; }
-      .cp-drop:hover { color: rgba(var(--ink-rgb), .95); }
-      .cp-drop:active { scale: .96; }
-      .cp-drop:focus-visible { outline: 2px solid ${BLUE}; outline-offset: 2px; }
-      .cp-drop svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
-      @media (prefers-reduced-motion: reduce) { .cp, .cp-preset, .cp-knob, .cp-drop { animation: none; transition-duration: 1ms; } }
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .1); }
+      .cp-sliders { display: grid; grid-template-columns: 24px 1fr; column-gap: 12px; align-items: center; margin-top: 16px; }
+      .cp-drop { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 5px; grid-row: span 2; }
+      .cp-drop:hover { background: var(--fbg); }
+      .cp-drop[aria-disabled="true"] { opacity: .35; pointer-events: none; }
+      .cp-bars { display: grid; gap: 12px; }
+      .cp-hue, .cp-alpha { position: relative; height: 16px; border-radius: 8px; cursor: ew-resize; touch-action: none; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .1); }
+      .cp-hue { background: linear-gradient(to right, #f00 0 8px, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 calc(100% - 8px)); }
+      .cp-alpha { background: linear-gradient(to right, transparent 8px, var(--solid) calc(100% - 8px)), repeating-conic-gradient(rgba(var(--ink-rgb), .22) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
+      .cp-knob { position: absolute; z-index: 1; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 999px; pointer-events: none;
+        box-shadow: inset 0 0 0 3px #fff, 0 0 0 1px rgba(0, 0, 0, .15), 0 1px 3px rgba(0, 0, 0, .3); }
+      .cp-vals { display: grid; grid-template-columns: 54px 1fr; gap: 8px; margin-top: 16px; }
+      .cp-fmt { position: relative; display: flex; align-items: center; justify-content: space-between; height: 24px; padding: 0 2px 0 8px; border-radius: 5px; box-shadow: inset 0 0 0 1px var(--line); }
+      .cp-fmt svg { width: 16px; height: 16px; color: var(--fg2); }
+      .cp-fmt select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; font: inherit; }
+      .cp-val { display: flex; min-width: 0; height: 24px; border-radius: 5px; background: var(--fbg); }
+      .cp-val input { all: unset; box-sizing: border-box; min-width: 0; height: 24px; padding: 0 8px; color: rgba(var(--ink-rgb), .9); font: inherit; font-variant-numeric: tabular-nums; cursor: text; }
+      .cp-val .cp-in { display: flex; flex: 1; min-width: 0; }
+      .cp-val .cp-in input { flex: 1; }
+      .cp-val .cp-in input + input { border-left: 1px solid rgb(var(--panel-rgb)); padding: 0 4px; }
+      .cp-val .cp-in input.hexin { text-transform: uppercase; }
+      .cp-val .cp-a { display: flex; align-items: center; flex: none; width: 52px; border-left: 1px solid rgb(var(--panel-rgb)); }
+      .cp-val .cp-a input { width: 100%; padding: 0 2px 0 8px; }
+      .cp-val .cp-a span { padding-right: 8px; color: var(--fg2); }
+      .cp-val input:focus { box-shadow: inset 0 0 0 1px var(--fblue); border-radius: 5px; }
+      .cp-sep { height: 1px; margin: 16px -16px; background: var(--line); }
+      .cp-src { display: flex; align-items: center; height: 24px; margin-bottom: 8px; padding: 0 8px; border-radius: 5px; box-shadow: inset 0 0 0 1px var(--line); }
+      .cp-swatches { display: grid; grid-template-columns: repeat(9, 16px); justify-content: space-between; row-gap: 8px; }
+      .cp-sw { position: relative; width: 16px; height: 16px; border-radius: 2px; cursor: default;
+        background: linear-gradient(to right, var(--o) 50%, transparent 50%), linear-gradient(var(--c), var(--c)), repeating-conic-gradient(#ccc 0 25%, #fff 0 50%) 0 0 / 6px 6px;
+        box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), .12); }
+      .cp-sw:hover { box-shadow: 0 0 0 1px rgb(var(--panel-rgb)), 0 0 0 2px rgba(var(--ink-rgb), .4); }
+      .cp-sw[aria-checked="true"] { box-shadow: 0 0 0 1px rgb(var(--panel-rgb)), 0 0 0 2px var(--fblue); }
+      .cp-vars { display: grid; margin: -8px; }
+      .cp-var { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; border-radius: 5px; }
+      .cp-var:hover { background: var(--fbg); }
+      .cp-var .cp-sw { flex: none; }
+      .cp-var .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .cp-var svg { color: var(--fblue); }
+      .cp-empty { margin: 0; color: var(--fg2); }
+      @media (prefers-reduced-motion: reduce) { .cp { animation: none; } }
       @media (prefers-reduced-motion: reduce) { button, .handle, .band { transition: none; } }
     </style>
     <div class="box hover"></div>
@@ -600,7 +638,6 @@
     <div class="ghosts"></div>
     <div class="mtag"></div>
     <aside class="panel" aria-label="Selected element">
-      <header><span class="el"></span><span class="comp"></span></header>
       <p class="hint">Select an element to edit it.</p>
       <section data-sec="position">
         <h4>Position<button class="ib" type="button" data-act="absolute" aria-pressed="false" aria-label="Absolute position" title="Absolute position">${PI.absolute}</button></h4>
@@ -703,7 +740,7 @@
       <section data-sec="fill">
         <h4>Fill<button class="ib" type="button" data-act="add-fill" aria-label="Add fill" title="Add fill">${PI.plus}</button></h4>
         <div class="crow" data-has>
-          <div class="cf"><div class="f c" data-f="fill" title="Fill colour"><button class="sw" type="button" aria-label="Open fill colour picker" aria-expanded="false"></button><input class="hex" spellcheck="false" aria-label="Fill colour"></div><label class="f a" data-f="fill-alpha" title="Fill opacity"><input inputmode="decimal" aria-label="Fill opacity"><span class="pct">%</span></label></div>
+          <div class="cf"><div class="f c" data-f="fill" title="Fill colour"><button class="sw" type="button" aria-label="Open fill colour picker" aria-expanded="false"></button><input class="hex" spellcheck="false" aria-label="Fill colour"><span class="vn"></span><button class="ib dt" type="button" data-act="detach" aria-label="Detach variable" title="Detach variable">${PI.detach}</button></div><label class="f a" data-f="fill-alpha" title="Fill opacity"><input inputmode="decimal" aria-label="Fill opacity"><span class="pct">%</span></label></div>
           <span></span>
           <button class="ib" type="button" data-act="remove-fill" aria-label="Remove fill" title="Remove fill">${PI.minus}</button>
         </div>
@@ -711,7 +748,7 @@
       <section data-sec="border">
         <h4>Stroke<button class="ib" type="button" data-act="add-stroke" aria-label="Add stroke" title="Add stroke">${PI.plus}</button></h4>
         <div class="crow" data-has>
-          <div class="cf"><div class="f c" data-f="border-color" title="Stroke colour"><button class="sw" type="button" aria-label="Open stroke colour picker" aria-expanded="false"></button><input class="hex" spellcheck="false" aria-label="Stroke colour"></div><label class="f a" data-f="border-alpha" title="Stroke opacity"><input inputmode="decimal" aria-label="Stroke opacity"><span class="pct">%</span></label></div>
+          <div class="cf"><div class="f c" data-f="border-color" title="Stroke colour"><button class="sw" type="button" aria-label="Open stroke colour picker" aria-expanded="false"></button><input class="hex" spellcheck="false" aria-label="Stroke colour"><span class="vn"></span><button class="ib dt" type="button" data-act="detach" aria-label="Detach variable" title="Detach variable">${PI.detach}</button></div><label class="f a" data-f="border-alpha" title="Stroke opacity"><input inputmode="decimal" aria-label="Stroke opacity"><span class="pct">%</span></label></div>
           <span></span>
           <button class="ib" type="button" data-act="remove-stroke" aria-label="Remove stroke" title="Remove stroke">${PI.minus}</button>
         </div>
@@ -1645,7 +1682,12 @@
     const edit = styleEdits.get(el);
     for (const prop of props) {
       if (!edit.props.has(prop)) {
-        edit.props.set(prop, { before: originalStyle.get(el)?.[prop] ?? cs.getPropertyValue(prop), shown: cs.getPropertyValue(prop), inline: el.style.getPropertyValue(prop) });
+        edit.props.set(prop, {
+          before: originalStyle.get(el)?.[prop] ?? cs.getPropertyValue(prop),
+          shown: cs.getPropertyValue(prop),
+          inline: el.style.getPropertyValue(prop),
+          fromVar: isColorProp(prop) ? varOf(el, prop) : null,
+        });
       }
       const pe = edit.props.get(prop);
       el.style.setProperty(prop, value);
@@ -1660,6 +1702,7 @@
       }
     }
     if (!edit.props.size) styleEdits.delete(el);
+    editVersion++; // what was looked up before the write (its variable) is stale now
     mark(el);
     if (quiet) return;
     render();
@@ -1739,6 +1782,85 @@
       if (bare && c.a > 0) setBorderWidth(el, 1);
       setStyle(el, BORDER_SIDES("color"), value, bare); // on a new border the colour stays, even when it matches currentColor
     });
+  }
+
+  /* ---------- CSS variables: which custom property a colour comes from ---------- */
+
+  /* The page's style rules, flat, and per property the ones that declare it. Rebuilt every few seconds. */
+  let ruleIndex = null;
+  function rulesFor(props) {
+    if (!ruleIndex || performance.now() - ruleIndex.at > 3000) {
+      const rules = [];
+      const visit = (list) => {
+        for (const rule of list) {
+          if (rule.selectorText) rules.push(rule);
+          else if (rule.cssRules && (!rule.media || matchMedia(rule.media.mediaText).matches)) visit(rule.cssRules);
+        }
+      };
+      for (const sheet of document.styleSheets) {
+        if (sheet.ownerNode === pageStyle) continue;
+        try {
+          visit(sheet.cssRules);
+        } catch {} // cross-origin
+      }
+      ruleIndex = { at: performance.now(), rules, by: new Map() };
+    }
+    const key = props.join();
+    if (!ruleIndex.by.has(key)) ruleIndex.by.set(key, ruleIndex.rules.filter((r) => props.some((prop) => r.style.getPropertyValue(prop))));
+    return ruleIndex.by.get(key);
+  }
+  /* The authored value that wins for these props on this element: inline, else the strongest matching rule. */
+  function declared(el, props) {
+    for (const prop of props) if (el.style?.getPropertyValue(prop)) return el.style.getPropertyValue(prop);
+    let best = null;
+    rulesFor(props).forEach((rule, order) => {
+      const prop = props.find((x) => rule.style.getPropertyValue(x));
+      for (const part of rule.selectorText.split(",")) {
+        let hit = false;
+        try {
+          hit = el.matches(part.trim());
+        } catch {}
+        if (!hit) continue;
+        const score = (rule.style.getPropertyPriority(prop) === "important" ? 1e6 : 0) + specificity(part);
+        if (!best || score > best.score || (score === best.score && order > best.order)) best = { v: rule.style.getPropertyValue(prop), score, order };
+      }
+    });
+    return best?.v ?? null;
+  }
+  const VAR_PROPS = { color: ["color"], "background-color": ["background-color", "background"], "border-top-color": ["border-top-color", "border-color", "border-top", "border"] };
+  const varCache = new WeakMap();
+  /* "--ink" when the colour is written as var(--ink) (text colour is looked up the inheritance chain). Not for
+     colours built around a variable, like rgba(var(--ink-rgb), .9): that is a value, not a colour variable. */
+  function varOf(el, prop) {
+    const key = /^border/.test(prop) ? "border-top-color" : prop;
+    const stamp = `${editVersion}/${ruleIndex?.at ?? 0}`;
+    const hit = varCache.get(el);
+    if (hit?.stamp === stamp && key in hit.v) return hit.v[key];
+    let v = null;
+    for (let n = el; n?.nodeType === 1; n = n.parentElement) {
+      v = declared(n, VAR_PROPS[key] ?? [key]);
+      if (key !== "color" || (v && !/^(inherit|unset)$/.test(v.trim()))) break;
+    }
+    const name = v && !/\b(rgba?|hsla?|oklch|oklab|lab|lch|color-mix|color|light-dark)\(/i.test(v) ? v.match(/var\(\s*(--[\w-]+)/)?.[1] ?? null : null;
+    const entry = hit?.stamp === stamp ? hit : { stamp, v: {} };
+    entry.v[key] = name;
+    varCache.set(el, entry);
+    return name;
+  }
+  /* The page's colour variables, resolved where the selection is (so a theme's values show). */
+  function colorVars() {
+    const names = new Set();
+    rulesFor([]); // builds the index
+    for (const rule of ruleIndex.rules) for (let i = 0; i < rule.style.length; i++) if (rule.style[i].startsWith("--")) names.add(rule.style[i]);
+    const cs = getComputedStyle(selected?.isConnected ? selected : document.documentElement);
+    const out = [];
+    for (const name of names) {
+      const v = cs.getPropertyValue(name).trim();
+      if (!v || !CSS.supports("color", v)) continue;
+      out.push({ name, ...colorParts(v) });
+      if (out.length >= 80) break;
+    }
+    return out;
   }
 
   /* box-shadow as a list: commas inside rgba() do not split it. */
@@ -1969,8 +2091,9 @@
       const add = (prop, c) => {
         const parts = colorParts(c);
         if (!parts.a) return;
-        const key = `${parts.hex}/${parts.a}`;
-        if (!groups.has(key)) groups.set(key, { ...parts, members: [] });
+        const v = varOf(el, prop === "border-color" ? "border-top-color" : prop);
+        const key = `${parts.hex}/${parts.a}/${v ?? ""}`;
+        if (!groups.has(key)) groups.set(key, { ...parts, v, members: [] });
         groups.get(key).members.push([el, prop]);
       };
       if (hasOwnText(el)) add("color", cs.color);
@@ -1979,6 +2102,42 @@
     }
     return [...groups.values()].slice(0, 12);
   }
+  /* The elements and props a colour field drives: the selection's fill or stroke, or one selection colour's uses. */
+  function colorTargets(f) {
+    const sc = f.match(/^sc-(\d+)$/);
+    if (sc) return (scGroups[+sc[1]]?.members ?? []).filter(([el]) => el.isConnected).map(([el, prop]) => [el, prop === "border-color" ? BORDER_SIDES("color") : [prop]]);
+    return selectedAll().map((el) => [el, f === "fill" ? [colorProp(el, "fill")] : BORDER_SIDES("color")]);
+  }
+  const varFor = (f) => {
+    const sc = f.match(/^sc-(\d+)$/);
+    if (sc) return scGroups[+sc[1]]?.v ?? null;
+    return selected ? varOf(selected, colorProp(selected, f)) : null;
+  };
+  /* Attach: write var(--name). Coming back to the variable it had drops the edit; any other stays, even at the same colour. */
+  function attachVar(f, name) {
+    batch(() => {
+      for (const [el, props] of colorTargets(f)) {
+        prepare(el);
+        const had = styleEdits.get(el)?.props.get(props[0])?.fromVar ?? varOf(el, props[0]);
+        if (f === "border-color" && getComputedStyle(el).borderTopStyle === "none") setBorderWidth(el, 1);
+        setStyle(el, props, `var(${name})`, had !== name, `var(${name})`);
+      }
+    });
+    const g = scGroups[+(f.match(/^sc-(\d+)$/)?.[1] ?? -1)];
+    if (g) Object.assign(g, { v: name }, colorParts(getComputedStyle(document.documentElement).getPropertyValue(name)));
+  }
+  /* Detach: the same colour, written out, so it no longer follows the variable. */
+  function detachVar(f) {
+    batch(() => {
+      for (const [el, props] of colorTargets(f)) {
+        prepare(el);
+        setStyle(el, props, colorValue(colorParts(getComputedStyle(el).getPropertyValue(props[0]))), true);
+      }
+    });
+    const g = scGroups[+(f.match(/^sc-(\d+)$/)?.[1] ?? -1)];
+    if (g) g.v = null;
+  }
+
   function writeSelColor(f, v) {
     const [, i, alpha] = f.match(/^sc-(\d+)(-alpha)?$/) ?? [];
     const g = scGroups[+i];
@@ -1993,7 +2152,7 @@
         setStyle(el, prop === "border-color" ? BORDER_SIDES("color") : [prop], value);
       }
     });
-    Object.assign(g, c, { hex: colorParts(value).hex });
+    Object.assign(g, c, { hex: colorParts(value).hex, v: null }); // a written colour is detached
   }
 
   const spaceField = (props) => ({
@@ -3381,7 +3540,6 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
   }
 
   let lastPanelFor = null;
-  let lastPanelCount = -1;
   let sizeFor = null; // the resizing modes below were measured for this element, at this edit
   let sizeVer = -1;
   let sizeModes = { width: "fixed", height: "fixed" };
@@ -3420,29 +3578,16 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     panel.toggleAttribute("data-empty", !has);
     if (!has) {
       closePicker();
-      panel.querySelector(".el").textContent = "No selection";
-      panel.querySelector(".comp").textContent = "";
       lastPanelFor = null;
       return;
     }
     if (lastPanelFor !== selected) {
       lastPanelFor = selected;
       closePicker();
-      const d = describe(selected);
-      const cls = [...selected.classList].filter((c) => !c.startsWith("ptk"))[0];
-      panel.querySelector(".el").textContent = addEdits.has(selected) ? "New box" : `<${d.tag}>${cls ? ` .${cls.replace(/^[A-Za-z]+-module__[A-Za-z0-9_-]+__/, "")}` : ""}`;
-      lastPanelCount = -1; // recount below
-      panel.querySelector(".comp").textContent = d.components.length ? d.components.map((c) => `<${c}>`).join(" in ") : "";
       /* Sides that already differ open the four-field view, like Figma's independent padding. */
       const cs = getComputedStyle(selected);
       const split = px(cs, "padding-top") !== px(cs, "padding-bottom") || px(cs, "padding-left") !== px(cs, "padding-right");
       setIndependent(split);
-    }
-    const n = selectedAll().length;
-    if (n !== lastPanelCount) {
-      lastPanelCount = n;
-      const comps = describe(selected).components;
-      panel.querySelector(".comp").textContent = n > 1 ? `${n} selected, edits apply to all` : comps.length ? comps.map((c) => `<${c}>`).join(" in ") : "";
     }
     paintType();
     const cs = getComputedStyle(selected);
@@ -3576,7 +3721,7 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       scGroups
         .map(
           (_, i) =>
-            `<div class="crow"><div class="cf"><div class="f c" data-f="sc-${i}" title="Colour ${i + 1}"><button class="sw" type="button" aria-label="Open colour picker" aria-expanded="false"></button><input class="hex" spellcheck="false" aria-label="Colour ${i + 1}"></div><label class="f a" data-f="sc-${i}-alpha" title="Opacity"><input inputmode="decimal" aria-label="Colour ${i + 1} opacity"><span class="pct">%</span></label></div></div>`,
+            `<div class="crow"><div class="cf"><div class="f c" data-f="sc-${i}" title="Colour ${i + 1}"><button class="sw" type="button" aria-label="Open colour picker" aria-expanded="false"></button><input class="hex" spellcheck="false" aria-label="Colour ${i + 1}"><span class="vn"></span><button class="ib dt" type="button" data-act="detach" aria-label="Detach variable" title="Detach variable">${PI.detach}</button></div><label class="f a" data-f="sc-${i}-alpha" title="Opacity"><input inputmode="decimal" aria-label="Colour ${i + 1} opacity"><span class="pct">%</span></label></div></div>`,
         )
         .join(""),
     );
@@ -3586,8 +3731,19 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       const sc = f.dataset.f.match(/^sc-(\d+)$/);
       const color = sc ? colorValue(scGroups[+sc[1]] ?? { rgb: [0, 0, 0], a: 0 }) : cs.getPropertyValue(colorProp(selected, f.dataset.f));
       f.querySelector(".sw").style.setProperty("--sw", color);
-      if (cp.for === f.dataset.f) syncPicker(colorParts(color).hex);
+      const v = varFor(f.dataset.f);
+      if ((f.dataset.var ?? null) !== v) {
+        if (v) f.dataset.var = v;
+        else delete f.dataset.var;
+        f.querySelector(".vn").textContent = v ? v.slice(2) : "";
+        f.querySelector(".vn").title = v ? `var(${v})` : "";
+      }
+      if (cp.for === f.dataset.f) {
+        const parts = colorParts(color);
+        syncPicker(parts.hex, parts.a);
+      }
     }
+    if (cp.for) placePicker();
     for (const input of panel.querySelectorAll(".f input")) {
       if (input === focused) continue;
       const value = readField(input.closest(".f").dataset.f);
@@ -3694,12 +3850,14 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     const cell = e.target.closest(".agrid button");
     if (cell) return batch(() => selectedAll().forEach((el) => setAlign(el, +cell.dataset.x, +cell.dataset.y)));
     const b = e.target.closest("button[data-act]");
-    if (b) act(b.dataset.act, b.dataset.v);
+    if (b?.dataset.act === "detach") return detachVar(b.closest(".f").dataset.f);
+    if (b) return act(b.dataset.act, b.dataset.v);
+    const vn = e.target.closest(".f.c .vn");
+    if (vn) openPicker(vn.closest(".f").dataset.f, "libraries");
   });
 
-  /* ---------- colour picker (PERMANENT ui's ColorPicker, in the panel) ---------- */
+  /* ---------- colour picker: Figma's, as a popover beside the panel ---------- */
 
-  const PRESETS = ["#4c9df5", "#6e56cf", "#d6409f", "#e5484d", "#f76b15", "#ffc53d", "#30a46c", "#12a594", "#141414"];
   const clamp01 = (n) => Math.min(1, Math.max(0, n));
   function hexToHsv(hex) {
     const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex).trim());
@@ -3719,59 +3877,176 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     };
     return `#${[f(5), f(3), f(1)].map((x) => x.toString(16).padStart(2, "0")).join("")}`;
   }
+  const hexRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const rgbHex = (rgb) => `#${rgb.map((x) => Math.round(Math.min(255, Math.max(0, x))).toString(16).padStart(2, "0")).join("")}`;
+  function rgbToHsl([r, g, b]) {
+    [r, g, b] = [r / 255, g / 255, b / 255];
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+    let h = 0;
+    if (d) h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return [Math.round((h * 60 + 360) % 360), Math.round((d ? d / (1 - Math.abs(2 * l - 1)) : 0) * 100), Math.round(l * 100)];
+  }
+  function hslToRgb([h, s, l]) {
+    [s, l] = [s / 100, l / 100];
+    const k = (n) => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    return [0, 8, 4].map((n) => 255 * (l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1))));
+  }
 
   const cpEl = document.createElement("div");
   cpEl.className = "cp";
-  cpEl.innerHTML = `<div class="cp-presets" role="radiogroup" aria-label="Presets">${PRESETS.map((p) => `<button class="cp-preset" type="button" role="radio" aria-checked="false" aria-label="${p}" data-c="${p}" style="--c:${p}"></button>`).join("")}</div>
-    <div class="cp-field" role="slider" tabindex="0" aria-label="Saturation and brightness" aria-valuemin="0" aria-valuemax="100"><span class="cp-knob"></span></div>
-    <div class="cp-hue" role="slider" tabindex="0" aria-label="Hue" aria-valuemin="0" aria-valuemax="360"><span class="cp-knob"></span></div>
-    <div class="cp-foot"><label class="cp-hexf"><span aria-hidden="true">#</span><input spellcheck="false" aria-label="Hex"></label>${
-      window.EyeDropper ? `<button class="cp-drop" type="button" aria-label="Pick a colour from the screen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6.5 3 3M4 20l1.2-3.6L13 8.6l2.4 2.4-7.8 7.8L4 20Zm11-15.5 1.4-1.4a2 2 0 0 1 2.8 0l1.7 1.7a2 2 0 0 1 0 2.8L19.5 9"/></svg></button>` : ""
-    }</div>`;
+  cpEl.setAttribute("role", "dialog");
+  cpEl.setAttribute("aria-label", "Colour");
+  cpEl.innerHTML = `<div class="cp-head"><div class="cp-tabs" role="tablist"><button type="button" role="tab" data-tab="custom" aria-selected="true">Custom</button><button type="button" role="tab" data-tab="libraries" aria-selected="false">Libraries</button></div><button class="cp-x" type="button" aria-label="Close">${PI.close}</button></div>
+    <div class="cp-pane" data-pane="custom">
+      <div class="cp-field" role="slider" tabindex="0" aria-label="Saturation and brightness" aria-valuemin="0" aria-valuemax="100"><span class="cp-knob"></span></div>
+      <div class="cp-sliders">
+        <button class="cp-drop" type="button" aria-label="Pick a colour from the screen" title="Pick a colour from the screen"${window.EyeDropper ? "" : ' aria-disabled="true"'}>${PI.drop}</button>
+        <div class="cp-bars">
+          <div class="cp-hue" role="slider" tabindex="0" aria-label="Hue" aria-valuemin="0" aria-valuemax="360"><span class="cp-knob"></span></div>
+          <div class="cp-alpha" role="slider" tabindex="0" aria-label="Opacity" aria-valuemin="0" aria-valuemax="100"><span class="cp-knob"></span></div>
+        </div>
+      </div>
+      <div class="cp-vals">
+        <label class="cp-fmt"><span class="t">Hex</span>${PI.chevron}<select aria-label="Colour format"><option>Hex</option><option>RGB</option><option>HSL</option><option>CSS</option></select></label>
+        <div class="cp-val"><div class="cp-in"></div><label class="cp-a"><input inputmode="decimal" aria-label="Opacity"><span>%</span></label></div>
+      </div>
+      <div class="cp-sep"></div>
+      <div class="cp-src">On this page</div>
+      <div class="cp-swatches" role="radiogroup" aria-label="Colours on this page"></div>
+    </div>
+    <div class="cp-pane" data-pane="libraries" hidden><div class="cp-vars" role="listbox" aria-label="Colour variables"></div></div>`;
   const cpField = cpEl.querySelector(".cp-field");
   const cpHue = cpEl.querySelector(".cp-hue");
-  const cpHex = cpEl.querySelector(".cp-hexf input");
-  const cp = { for: null, hsv: { h: 210, s: 0.7, v: 0.96 }, hex: "" };
+  const cpAlpha = cpEl.querySelector(".cp-alpha");
+  const cpIn = cpEl.querySelector(".cp-in");
+  const cpA = cpEl.querySelector(".cp-a input");
+  const cpFmt = cpEl.querySelector(".cp-fmt select");
+  const cp = { for: null, hsv: { h: 210, s: 0.7, v: 0.96 }, hex: "", a: 1, fmt: "Hex", tab: "custom", vars: [] };
 
+  /* The value row: one field for Hex and CSS, three for RGB and HSL. */
+  function buildValues() {
+    cpEl.querySelector(".cp-fmt .t").textContent = cp.fmt;
+    const n = cp.fmt === "RGB" || cp.fmt === "HSL" ? 3 : 1;
+    cpIn.innerHTML = Array.from({ length: n }, (_, i) => `<input data-i="${i}" spellcheck="false"${cp.fmt === "Hex" ? ' class="hexin"' : ""} aria-label="${cp.fmt === "RGB" ? "RGB"[i] : cp.fmt === "HSL" ? "HSL"[i] : cp.fmt}">`).join("");
+  }
+  function valueTexts() {
+    const rgb = hexRgb(cp.hex || "#000000");
+    if (cp.fmt === "RGB") return rgb.map(String);
+    if (cp.fmt === "HSL") return rgbToHsl(rgb).map(String);
+    if (cp.fmt === "CSS") return [colorValue({ rgb, a: cp.a })];
+    return [cp.hex.slice(1).toUpperCase()];
+  }
   function drawPicker() {
     const { h, s, v } = cp.hsv;
     const hex = hsvToHex(cp.hsv);
     const hueColor = `hsl(${h} 100% 50%)`;
     cpField.style.setProperty("--hue", hueColor);
     Object.assign(cpField.firstElementChild.style, { left: `${s * 100}%`, top: `${(1 - v) * 100}%`, background: hex });
-    Object.assign(cpHue.firstElementChild.style, { left: `${(h / 360) * 100}%`, top: "50%", background: hueColor });
+    /* Knobs travel inside the bars' rounded ends, like Figma's. */
+    const along = (t) => `calc(8px + (100% - 16px) * ${t})`;
+    Object.assign(cpHue.firstElementChild.style, { left: along(h / 360), top: "50%", background: hueColor });
+    Object.assign(cpAlpha.firstElementChild.style, { left: along(cp.a), top: "50%", background: colorValue({ rgb: hexRgb(hex), a: cp.a }) });
+    cpAlpha.style.setProperty("--solid", hex);
     cpField.setAttribute("aria-valuenow", Math.round(s * 100));
     cpField.setAttribute("aria-valuetext", `saturation ${Math.round(s * 100)}%, brightness ${Math.round(v * 100)}%`);
     cpHue.setAttribute("aria-valuenow", Math.round(h));
-    if (root.activeElement !== cpHex) cpHex.value = hex.slice(1);
-    cpEl.querySelectorAll(".cp-preset").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.c === hex)));
+    cpAlpha.setAttribute("aria-valuenow", Math.round(cp.a * 100));
+    const texts = valueTexts();
+    cpIn.querySelectorAll("input").forEach((input, i) => root.activeElement !== input && (input.value = texts[i] ?? ""));
+    if (root.activeElement !== cpA) cpA.value = `${Math.round(cp.a * 100)}`;
+    const now = colorValue({ rgb: hexRgb(hex), a: cp.a });
+    cpEl.querySelectorAll(".cp-swatches .cp-sw").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.c === now)));
   }
 
-  /* A value set from outside (typed in the field, another element) moves the handles; our own drags keep their hue. */
-  function syncPicker(hex) {
-    if (hex === cp.hex) return;
+  /* A value set from outside (typed in the panel, another element) moves the handles; our own drags keep their hue. */
+  function syncPicker(hex, a = cp.a) {
+    if (hex === cp.hex && a === cp.a) return;
     cp.hex = hex;
+    cp.a = a;
     const next = hexToHsv(hex);
     if (next && hsvToHex(cp.hsv) !== hex) cp.hsv = next.s === 0 ? { ...next, h: cp.hsv.h } : next;
     drawPicker();
+    paintVars();
   }
 
-  function commitPicker(next) {
+  /* Colour and opacity go out together (#rrggbbaa), so a custom colour also detaches a variable. */
+  function commitPicker(next, a = cp.a) {
     cp.hsv = next;
     cp.hex = hsvToHex(next);
+    cp.a = clamp01(a);
     drawPicker();
-    if (selected && cp.for) writeField(cp.for, cp.hex);
+    if (selected && cp.for) writeField(cp.for, `${cp.hex}${Math.round(cp.a * 255).toString(16).padStart(2, "0")}`);
+  }
+  const commitHex = (hex, a) => {
+    const next = hexToHsv(hex);
+    if (next) commitPicker(next.s === 0 ? { ...next, h: cp.hsv.h } : next, a);
+  };
+
+  /* Every colour the page shows, for the swatches under the picker. */
+  function pageColors() {
+    const seen = new Map();
+    let n = 0;
+    for (const el of document.body.querySelectorAll("*")) {
+      if (++n > 1500 || seen.size >= 54) break;
+      if (host.contains(el) || el === host || el instanceof SVGElement) continue;
+      const cs = getComputedStyle(el);
+      for (const c of [hasOwnText(el) && cs.color, cs.backgroundColor, cs.borderTopStyle !== "none" && px(cs, "border-top-width") && cs.borderTopColor]) {
+        if (!c) continue;
+        const parts = colorParts(c);
+        if (parts.a > 0) seen.set(colorValue(parts), parts);
+      }
+    }
+    return [...seen.values()];
+  }
+  const swatch = (parts) => {
+    const c = colorValue(parts);
+    return `style="--c:${c};--o:${parts.a < 1 ? parts.hex : c}"`;
+  };
+  function paintVars() {
+    const list = cpEl.querySelector(".cp-vars");
+    if (cp.tab !== "libraries") return;
+    const on = cp.for && varFor(cp.for);
+    list.innerHTML = cp.vars.length
+      ? cp.vars.map((v) => `<button class="cp-var" type="button" role="option" aria-selected="${v.name === on}" data-var="${esc(v.name)}" title="var(${esc(v.name)})"><span class="cp-sw" ${swatch(v)}></span><span class="nm">${esc(v.name.slice(2))}</span>${v.name === on ? PI.check : ""}</button>`).join("")
+      : `<p class="cp-empty">No colour variables on this page.</p>`;
+  }
+  function showTab(tab) {
+    cp.tab = tab;
+    cpEl.querySelectorAll("[data-tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
+    cpEl.querySelectorAll("[data-pane]").forEach((p) => (p.hidden = p.dataset.pane !== tab));
+    if (tab === "libraries") {
+      cp.vars = colorVars();
+      paintVars();
+    }
+    placePicker();
   }
 
-  function openPicker(f) {
-    closePicker();
+  /* Beside the panel, level with the field it edits, always on screen. */
+  function placePicker() {
+    const field = panel.querySelector(`.f.c[data-f="${cp.for}"]`);
+    if (!field) return closePicker();
+    const r = field.getBoundingClientRect();
+    const left = panel.getBoundingClientRect().left - cpEl.offsetWidth - 8;
+    const top = Math.max(8, Math.min(r.top - 52, innerHeight - cpEl.offsetHeight - 8));
+    if (cpEl.style.left !== `${left}px`) cpEl.style.left = `${left}px`;
+    if (cpEl.style.top !== `${top}px`) cpEl.style.top = `${top}px`;
+  }
+
+  function openPicker(f, tab = "custom") {
+    if (cp.for !== f) closePicker();
     const field = panel.querySelector(`.f.c[data-f="${f}"]`);
     cp.for = f;
-    cp.hex = "";
     field.querySelector(".sw").setAttribute("aria-expanded", "true");
-    field.closest(".crow").after(cpEl);
-    const hex = readField(f);
-    syncPicker(hexToHsv(hex) ? `#${hex.toLowerCase()}` : "#4c9df5");
+    if (!cpEl.isConnected) root.append(cpEl);
+    cpEl.querySelector(".cp-swatches").innerHTML = pageColors().map((parts) => `<button class="cp-sw" type="button" role="radio" aria-checked="false" aria-label="${esc(colorValue(parts))}" data-c="${esc(colorValue(parts))}" ${swatch(parts)}></button>`).join("");
+    buildValues();
+    cp.hex = "";
+    const color = colorParts(getComputedStyle(selected).getPropertyValue(colorProp(selected, f.startsWith("sc-") ? "fill" : f)));
+    const sc = f.match(/^sc-(\d+)$/);
+    const start = sc ? scGroups[+sc[1]] : color;
+    syncPicker(start?.a ? start.hex : "#4c9df5", start?.a || 1);
+    showTab(tab);
   }
   function closePicker() {
     if (!cp.for) return;
@@ -3784,32 +4059,45 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     const sw = e.target.closest(".f.c .sw");
     if (!sw) return;
     const f = sw.closest(".f").dataset.f;
-    cp.for === f ? closePicker() : openPicker(f);
+    cp.for === f ? closePicker() : openPicker(f, varFor(f) ? "libraries" : "custom");
   });
   cpEl.addEventListener("click", async (e) => {
-    const preset = e.target.closest(".cp-preset");
-    if (preset) {
-      const next = hexToHsv(preset.dataset.c);
-      if (next) commitPicker(next.s === 0 ? { ...next, h: cp.hsv.h } : next);
-      return;
+    const tab = e.target.closest("[data-tab]");
+    if (tab) return showTab(tab.dataset.tab);
+    if (e.target.closest(".cp-x")) return closePicker();
+    const v = e.target.closest(".cp-var");
+    if (v && cp.for) {
+      attachVar(cp.for, v.dataset.var);
+      return paintVars();
+    }
+    const sw = e.target.closest(".cp-swatches .cp-sw");
+    if (sw) {
+      const parts = colorParts(sw.dataset.c);
+      return commitHex(parts.hex, parts.a);
     }
     if (e.target.closest(".cp-drop") && window.EyeDropper) {
       try {
         const { sRGBHex } = await new window.EyeDropper().open();
-        const next = hexToHsv(sRGBHex);
-        if (next) commitPicker(next);
+        commitHex(sRGBHex);
       } catch {} // dismissed
     }
+  });
+  cpFmt.addEventListener("change", () => {
+    cp.fmt = cpFmt.value;
+    buildValues();
+    drawPicker();
   });
   const fromField = (e) => {
     const r = cpField.getBoundingClientRect();
     commitPicker({ h: cp.hsv.h, s: clamp01((e.clientX - r.left) / r.width), v: clamp01(1 - (e.clientY - r.top) / r.height) });
   };
-  const fromHue = (e) => {
-    const r = cpHue.getBoundingClientRect();
-    commitPicker({ ...cp.hsv, h: clamp01((e.clientX - r.left) / r.width) * 359.9 });
+  const along = (el, e) => {
+    const r = el.getBoundingClientRect();
+    return clamp01((e.clientX - r.left - 8) / (r.width - 16));
   };
-  for (const [el, fn] of [[cpField, fromField], [cpHue, fromHue]]) {
+  const fromHue = (e) => commitPicker({ ...cp.hsv, h: along(cpHue, e) * 359.9 });
+  const fromAlpha = (e) => commitPicker(cp.hsv, Math.round(along(cpAlpha, e) * 100) / 100);
+  for (const [el, fn] of [[cpField, fromField], [cpHue, fromHue], [cpAlpha, fromAlpha]]) {
     el.addEventListener("pointerdown", (e) => {
       try {
         el.setPointerCapture(e.pointerId);
@@ -3832,22 +4120,55 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     e.preventDefault();
     commitPicker({ ...cp.hsv, h: (cp.hsv.h + d + 360) % 360 });
   });
-  const applyHex = () => {
-    const v = cpHex.value.replace(/[^0-9a-f]/gi, "");
-    const next = hexToHsv(`#${v}`);
-    if (next) commitPicker(next.s === 0 ? { ...next, h: cp.hsv.h } : next);
-    else drawPicker();
+  cpAlpha.addEventListener("keydown", (e) => {
+    const step = e.shiftKey ? 0.1 : 0.01;
+    const d = { ArrowLeft: -step, ArrowDown: -step, ArrowRight: step, ArrowUp: step }[e.key];
+    if (d === undefined) return;
+    e.preventDefault();
+    commitPicker(cp.hsv, Math.round((cp.a + d) * 100) / 100);
+  });
+  /* Typed values: Hex (3, 6 or 8 digits), RGB 0–255, HSL, or any CSS colour; opacity in %. */
+  function applyValues() {
+    const vals = [...cpIn.querySelectorAll("input")].map((i) => i.value.trim());
+    if (cp.fmt === "Hex") {
+      const v = vals[0].replace(/[^0-9a-f]/gi, "");
+      const t = v.length === 3 || v.length === 6 || v.length === 8 ? typedColor(v) : null;
+      return t ? commitHex(colorParts(colorValue({ rgb: t.rgb, a: 1 })).hex, t.a ?? cp.a) : drawPicker();
+    }
+    if (cp.fmt === "CSS") {
+      const t = typedColor(vals[0]);
+      return t?.rgb ? commitHex(colorParts(colorValue({ rgb: t.rgb, a: 1 })).hex, t.a ?? cp.a) : drawPicker();
+    }
+    const n = vals.map(Number);
+    if (n.some(Number.isNaN)) return drawPicker();
+    commitHex(rgbHex(cp.fmt === "RGB" ? n : hslToRgb(n)));
+  }
+  const applyAlpha = () => {
+    const v = parseFloat(cpA.value);
+    if (Number.isNaN(v)) drawPicker();
+    else if (Math.round(v) !== Math.round(cp.a * 100)) commitPicker(cp.hsv, clamp01(v / 100));
   };
-  cpHex.addEventListener("input", () => (cpHex.value = cpHex.value.replace(/[^0-9a-f]/gi, "").slice(0, 6)));
-  cpHex.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") applyHex();
+  /* Typing here never reaches the page or the toolkit's shortcuts; Esc closes. */
+  cpEl.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    const input = e.target.closest("input");
     if (e.key === "Escape") {
       e.preventDefault();
-      drawPicker();
-      cpHex.blur();
+      if (input) {
+        drawPicker();
+        input.blur();
+      } else closePicker();
+    } else if (e.key === "Enter" && input) {
+      e.preventDefault();
+      input === cpA ? applyAlpha() : applyValues();
+      input.select();
     }
   });
-  cpHex.addEventListener("blur", applyHex);
+  cpEl.addEventListener("focusout", (e) => {
+    if (e.target === cpA) applyAlpha();
+    else if (cpIn.contains(e.target)) applyValues();
+  });
+  cpEl.addEventListener("focusin", (e) => e.target.select?.());
 
   /* Scrub: drag a field's label sideways. 1px of mouse is 1px of value, snapped to the grid unless ⌥/⌘. */
   panel.addEventListener("pointerdown", (e) => {
@@ -4349,7 +4670,8 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     }
     if (styleEdits.size) {
       const change = (prop, pe) => {
-        const [from, to] = [shownStyle(prop, pe.before), pe.label ?? shownStyle(prop, pe.after)];
+        const was = shownStyle(prop, pe.before);
+        const [from, to] = [pe.fromVar ? `var(${pe.fromVar}) (${was})` : was, pe.label ?? shownStyle(prop, pe.after)];
         return from === to ? `${prop}: ${to}` : `${prop}: ${from} → ${to}`; // set on purpose, same as it computed
       };
       const typeList = [];
