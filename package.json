@@ -4,7 +4,7 @@
   "description": "A minimal toolbar for dialing in design while vibe coding: tweak text, radius, spacing and layout on localhost, copy one prompt for your coding agent.",
   "license": "MIT",
   "author": "David Bielenberg (https://github.com/davidexo)",
-  "homepage": "https://p3rmanent.github.io/design-toolkit/",
+  "homepage": "https://toolkit.prmnt.is/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/p3rmanent/design-toolkit.git"

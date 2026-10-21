@@ -7,7 +7,7 @@ make the same changes in the source.
 One file, [toolkit.js](toolkit.js), no dependencies, no build step. It lives in a shadow root, so it
 never touches your page's styles.
 
-Live demo: https://p3rmanent.github.io/design-toolkit/
+Live demo: https://toolkit.prmnt.is/
 
 ## Install
 
