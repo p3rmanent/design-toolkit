@@ -9,7 +9,7 @@
       /* Follow the toolkit's Appearance setting before first paint, so light never flashes dark. */
       try {
         const t = localStorage.getItem("ptk-theme");
-        if (t === "light" || t === "auto") document.documentElement.dataset.theme = t;
+        document.documentElement.dataset.theme = t === "light" || t === "dark" ? t : "auto";
       } catch {}
       addEventListener("design-toolkit:theme", (e) => (document.documentElement.dataset.theme = e.detail.theme));
     </script>

@@ -49,7 +49,7 @@ to your dev page.
 | `R` | **Add**: drag on the page to draw a striped placeholder box inside the container you start in; Select takes over with it selected and its **Desc** label ready: write what the box should contain (click the label later to change it). The prompt asks for an element of that size and place, with that description. Add leads the toolbar |
 | `C` | **Comment**: click any element, or select some text, and type a note; `↵` adds it, `⇧↵` for a new line. Numbered pins mark each comment, click one to edit or delete it |
 
-Everything snaps to a 2px grid, typed values included (13 becomes 14).
+Everything snaps to a 2px grid, typed values included (13 becomes 14). The value an element started with is a stop too, so going back to an off-grid original (say 15) lands on it exactly and the edit drops out of the prompt.
 
 | While tuning | Does |
 | --- | --- |
@@ -60,17 +60,21 @@ Everything snaps to a 2px grid, typed values included (13 becomes 14).
 | `⇧↵` while typing a spacing value | apply it to all four sides |
 | `↵` / `⇧↵` / `⇥` / `⇧⇥` (Spacing) | select first child / parent / next / previous sibling |
 | `Esc` | deselect, then leave the tool |
+| `⌥H` | hide the whole toolkit for a clean look at the page, `⌥H` again brings it back (edits stay) |
 
-**Panel.** While Move, Radius or Spacing is on, a panel docks on the right (the page moves over to make room) and shows the selected element and its
-Radius, Gap, Padding (horizontal and vertical, or all four sides via the corner button), Margin, Typography (font, weight, size, line height, letter spacing, alignment; shown for text), Fill and Border
-(width and colour; click a swatch to unfold PERMANENT ui's colour picker with presets, a saturation/brightness field, a hue strip, hex and an eyedropper, or type hex, rgba or none in the field).
+**Panel.** While Move, Radius or Spacing is on, a panel docks on the right (the page moves over to make room). It copies Figma's design panel (UI3), section by section, in CSS terms:
+**Position** (align within a flex or grid parent, X and Y read-only, rotation, rotate 90° and flips, and absolute position: like Figma it keeps the element where it is at its size, makes the parent relative, and lets you type X and Y),
+**Auto layout** (flow: freeform, vertical, horizontal, grid, wrap; resizing W and H as Fixed, Hug or Fill; the nine-dot alignment; gap, or Auto for space-between; padding horizontal and vertical, or all four sides; clip content),
+**Appearance** (opacity, corner radius, hide), **Typography** (font, weight, size, line height, letter spacing, alignment; shown for text),
+**Fill**, **Stroke** and **Effects** (an empty one is a title and a +; colours keep hex and opacity apart; effects are box-shadow), and **Selection colors** (every colour inside the selection; change one and it changes everywhere it is used).
+Click a swatch to unfold PERMANENT ui's colour picker with presets, a saturation/brightness field, a hue strip, hex and an eyedropper, or type hex, rgba or none in the field. Margins stay on the canvas (Spacing's bands), as Figma has none.
 Type a value, step with `↑` `↓`, `Tab` between fields, or drag a field's label to scrub, like Figma's
 design sidebar.
 
 **Use design tokens** (the corner wedge on Copy prompt). On (default): Claude maps values to your existing design tokens, rounding to the
 nearest one. Off: exact values, even if no token exists yet. Remembered per browser.
 
-**Appearance** (same menu). Dark (default), Light, or Auto to follow the system. Remembered per browser.
+**Appearance** (same menu). Auto (default) follows the system, or pick Dark or Light. Remembered per browser.
 
 **Add to Figma.** The side panel ends with an **Add to Figma** button for the selected element. It copies a prompt that tells your agent to capture that element into Figma with the Figma MCP server (generate_figma_design), as editable layers.
 
@@ -81,7 +85,7 @@ selection's siblings), clicking the selection again goes one level in, and `⌘`
 element. `⇧`-click adds or removes; `↵` selects all children, `⇧↵` all parents. Panel edits, the corner handle and
 Delete apply to everything selected. `⇥` / `⇧⇥` step to the next / previous sibling.
 
-**Layers** (top left, while Select has a selection) works like Figma's: click selects, `⌘`-click adds or removes, `⇧`-click selects a range, `⌥`-click an arrow opens or closes the whole branch, `⌥L` collapses everything but the path to the selection. Text layers are named by their text; double-click one to rename it and the page text changes with it (it lands in the prompt as a text edit). Drag rows to reorder or re-parent: a line shows before or after a row, the middle of a container's row drops inside it. It is a real layout move, so it lands in the prompt like a Select drag. Icons show column, row and grid layouts. The selection stays when you switch tools, and the side panel shows while
+**Layers** (top left, while Select has a selection) works like Figma's: click selects, `⌘`-click adds or removes, `⇧`-click selects a range, `⌥`-click an arrow opens or closes the whole branch, `⌥L` collapses everything but the path to the selection. Drag its header to move it anywhere, double-click the header to put it back. Text layers are named by their text; double-click one to rename it and the page text changes with it (it lands in the prompt as a text edit). Drag rows to reorder or re-parent: a line shows before or after a row, the middle of a container's row drops inside it. It is a real layout move, so it lands in the prompt like a Select drag. Icons show column, row and grid layouts. The selection stays when you switch tools, and the side panel shows while
 something is selected.
 
 **Canvas** (`test.html?canvas`, the Canvas button on the site): every test screen as a frame on a canvas, like a Figma file. Scroll pans, `⌘`/Ctrl + scroll (or pinch) zooms at the pointer, space or middle-drag pans, `⇧1` fits. Drag a frame by its name to move it; drag its right edge, bottom edge or corner to resize (double-click a handle to reset). Positions and sizes are remembered in your browser.

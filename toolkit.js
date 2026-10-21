@@ -10,7 +10,9 @@
                new order, neighbours, alignment, overlap) so Claude can turn it into real layout.
    C  Comment  click any element (or select some text) and leave a note in your own words.
 
-   Values snap to a 2px grid. Radius: ⌥ (or ⌘) for 1px values. Spacing uses Figma's keys: ⌥ drags the
+   ⌥H hides the whole toolkit and brings it back.
+
+   Values snap to a 2px grid (the value you started from is a stop too). Radius: ⌥ (or ⌘) for 1px values. Spacing uses Figma's keys: ⌥ drags the
    opposite side too, ⌥⇧ all four sides, ⌘ ignores the grid. ↵ child, ⇧↵ parent, ⇥ ⇧⇥ siblings.
    Plain JS, no dependencies, UI lives in a shadow root so it never fights the page. */
 
@@ -46,10 +48,10 @@
   try {
     useTokens = localStorage.getItem("ptk-tokens") !== "off";
   } catch {}
-  /* Toolbar appearance: dark (default), light, or auto to follow the system. Remembered per browser. */
-  let theme = "dark";
+  /* Toolbar appearance: auto (default) follows the system, or dark or light. Remembered per browser. */
+  let theme = "auto";
   try {
-    theme = ["light", "auto"].includes(localStorage.getItem("ptk-theme")) ? localStorage.getItem("ptk-theme") : "dark";
+    theme = ["dark", "light"].includes(localStorage.getItem("ptk-theme")) ? localStorage.getItem("ptk-theme") : "auto";
   } catch {}
 
   let editing = null; // text: element currently contenteditable
@@ -107,6 +109,7 @@
     html[data-ptk-tool="comment"] body *:not([data-ptk-host])::selection { background: rgba(255, 214, 10, .45); }
     [data-ptk-editing] { outline: 1.5px solid ${BLUE} !important; outline-offset: 3px; caret-color: ${BLUE}; }
     [data-ptk-edited]:not([data-ptk-editing]) { outline: 1.5px dashed ${BLUE} !important; outline-offset: 3px; }
+    html[data-ptk-hidden] [data-ptk-edited] { outline: none !important; }
   `;
   document.head.appendChild(pageStyle);
 
@@ -155,15 +158,64 @@
     appFocus = null;
     if (a?.isConnected && document.activeElement === host) a.focus({ preventScroll: true });
   }
+  /* The panel's icons, drawn on Figma's 24px grid: 1px strokes (.s) and solid bars. */
+  const pi = (body) => `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${body}</svg>`;
+  const padSide = (d) => pi(`<rect class="s" x="6.5" y="6.5" width="11" height="11" rx="2"/><path class="s" d="${d}"/>`);
+  const PI = {
+    alignL: pi('<rect x="6" y="6" width="1" height="12"/><rect x="8" y="9" width="7" height="2" rx=".5"/><rect x="8" y="13" width="10" height="2" rx=".5"/>'),
+    alignC: pi('<rect x="11.5" y="6" width="1" height="12"/><rect x="8.5" y="9" width="7" height="2" rx=".5"/><rect x="7" y="13" width="10" height="2" rx=".5"/>'),
+    alignR: pi('<rect x="17" y="6" width="1" height="12"/><rect x="9" y="9" width="7" height="2" rx=".5"/><rect x="6" y="13" width="10" height="2" rx=".5"/>'),
+    alignT: pi('<rect x="6" y="6" width="12" height="1"/><rect x="9" y="8" width="2" height="7" rx=".5"/><rect x="13" y="8" width="2" height="10" rx=".5"/>'),
+    alignM: pi('<rect x="6" y="11.5" width="12" height="1"/><rect x="9" y="8.5" width="2" height="7" rx=".5"/><rect x="13" y="7" width="2" height="10" rx=".5"/>'),
+    alignB: pi('<rect x="6" y="17" width="12" height="1"/><rect x="9" y="9" width="2" height="7" rx=".5"/><rect x="13" y="6" width="2" height="10" rx=".5"/>'),
+    absolute: pi('<path class="s" d="M6.5 9.5v-3h3m5 0h3v3m0 5v3h-3m-5 0h-3v-3"/><rect class="s" x="9.5" y="9.5" width="5" height="5" rx=".5"/>'),
+    angle: pi('<path class="s" d="M6.5 6.5v11h11M6.5 11.5a6 6 0 0 1 6 6"/>'),
+    rot90: pi('<path class="s" d="M12 6.5 17.5 12 12 17.5 6.5 12Z"/><path class="s" d="M15 5.5h3.5V9"/>'),
+    flipH: pi('<path class="s" d="M12 5.5v13M9.5 8.5v7L5.5 12Z"/><path d="M14.5 8.5v7l4-3.5Z"/>'),
+    flipV: pi('<path class="s" d="M5.5 12h13M8.5 9.5h7L12 5.5Z"/><path d="M8.5 14.5h7L12 18.5Z"/>'),
+    layout: pi('<rect class="s" x="6.5" y="6.5" width="4" height="11" rx="1"/><rect class="s" x="13.5" y="6.5" width="4" height="4" rx="1"/><path class="s" d="m13.5 15 1.5 1.5 3-3"/>'),
+    plus: pi('<path class="s" d="M12 6.5v11M6.5 12h11"/>'),
+    minus: pi('<path class="s" d="M6.5 12h11"/>'),
+    flowFree: pi('<circle class="s" cx="8.5" cy="9" r="2"/><circle class="s" cx="15.5" cy="8" r="2"/><circle class="s" cx="9.5" cy="15.5" r="2"/><circle class="s" cx="15.5" cy="15" r="2"/>'),
+    flowCol: pi('<rect class="s" x="6.5" y="6.5" width="5" height="4" rx="1"/><rect class="s" x="6.5" y="13.5" width="5" height="4" rx="1"/><path class="s" d="M15.5 6.5v11m-2.5-2.5 2.5 2.5 2.5-2.5"/>'),
+    flowRow: pi('<rect class="s" x="6.5" y="6.5" width="4" height="5" rx="1"/><rect class="s" x="13.5" y="6.5" width="4" height="5" rx="1"/><path class="s" d="M6.5 15.5h11M15 13l2.5 2.5L15 18"/>'),
+    flowGrid: pi('<rect class="s" x="6.5" y="6.5" width="4.5" height="4.5" rx="1"/><rect class="s" x="13" y="6.5" width="4.5" height="4.5" rx="1"/><rect class="s" x="6.5" y="13" width="4.5" height="4.5" rx="1"/><rect class="s" x="13" y="13" width="4.5" height="4.5" rx="1"/>'),
+    wrap: pi('<path class="s" d="M6.5 8.5h8a3 3 0 0 1 0 6h-7m2.5-2.5-2.5 2.5L10 17"/>'),
+    gapV: pi('<path class="s" d="M6.5 7.5h11m-11 9h11"/><rect x="9" y="11.5" width="6" height="1"/>'),
+    gapH: pi('<path class="s" d="M7.5 6.5v11m9-11v11"/><rect x="11.5" y="9" width="1" height="6"/>'),
+    padH: padSide("M9.5 9v6m5-6v6"),
+    padV: padSide("M9 9.5h6m-6 5h6"),
+    padL: padSide("M9.5 9v6"),
+    padT: padSide("M9 9.5h6"),
+    padR: padSide("M14.5 9v6"),
+    padB: padSide("M9 14.5h6"),
+    padIndep: pi('<rect class="s" x="6.5" y="6.5" width="11" height="11" rx="2"/><rect class="s" x="9" y="9" width="6" height="6" rx=".5"/>'),
+    eye: pi('<path class="s" d="M5.5 12s2.4-4.5 6.5-4.5 6.5 4.5 6.5 4.5-2.4 4.5-6.5 4.5S5.5 12 5.5 12Z"/><circle class="s" cx="12" cy="12" r="2"/>'),
+    eyeOff: pi('<path class="s" d="M5.5 12s2.4-4.5 6.5-4.5 6.5 4.5 6.5 4.5-2.4 4.5-6.5 4.5S5.5 12 5.5 12Z"/><path class="s" d="m6.5 17.5 11-11"/>'),
+    opacity: pi('<rect class="s" x="6.5" y="6.5" width="11" height="11" rx="1"/><path d="M17 7v10H7Z" opacity=".35"/>'),
+    radius: pi('<path class="s" d="M6.5 10.5v-1a3 3 0 0 1 3-3h1m3 0h1a3 3 0 0 1 3 3v1m0 3v1a3 3 0 0 1-3 3h-1m-3 0h-1a3 3 0 0 1-3-3v-1"/>'),
+    strokeW: pi('<rect x="6" y="7" width="12" height="1"/><rect x="6" y="11" width="12" height="1.5"/><rect x="6" y="15" width="12" height="2"/>'),
+    shadow: pi('<rect class="s" x="6.5" y="6.5" width="9" height="9" rx="1"/><path class="s" d="M17.5 9v8.5H9"/>'),
+    chevron: pi('<path class="s" d="m8.5 10.5 3.5 3.5 3.5-3.5"/>'),
+  };
+  /* Auto layout alignment: three bars, laid out along the flow, pushed to the chosen side. */
+  const alignBars = (col, i) =>
+    `<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">${(col ? [7, 10, 5] : [7, 10, 5])
+      .map((len, k) => {
+        const off = [2, (16 - len) / 2, 14 - len][i];
+        return col ? `<rect x="${off}" y="${3.5 + k * 3.5}" width="${len}" height="2" rx=".5"/>` : `<rect x="${3.5 + k * 3.5}" y="${off}" width="2" height="${len}" rx=".5"/>`;
+      })
+      .join("")}</svg>`;
+
   root.innerHTML = `
     <style>
       :host { all: initial; }
-      /* Dark by default. Light (or Auto on a light system) swaps the ink and the pane, nothing else:
+      /* Auto by default: dark, or light on a light system. Light swaps the ink and the pane, nothing else:
          the page overlays (blue selection, bands, tags) read on any page as they are. */
-      :host, :host([data-theme="dark"]) { --ink-rgb: 255, 255, 255; --elev-rgb: 38, 38, 38; --shadow-rgb: 0, 0, 0; --danger: #ff6961; }
-      :host([data-theme="light"]) { --ink-rgb: 20, 20, 20; --elev-rgb: 252, 252, 252; --shadow-rgb: 0, 0, 0; --danger: #e5484d; }
+      :host, :host([data-theme="dark"]) { --ink-rgb: 255, 255, 255; --elev-rgb: 38, 38, 38; --panel-rgb: 44, 44, 44; --shadow-rgb: 0, 0, 0; --danger: #ff6961; }
+      :host([data-theme="light"]) { --ink-rgb: 20, 20, 20; --elev-rgb: 252, 252, 252; --panel-rgb: 255, 255, 255; --shadow-rgb: 0, 0, 0; --danger: #e5484d; }
       @media (prefers-color-scheme: light) {
-        :host([data-theme="auto"]) { --ink-rgb: 20, 20, 20; --elev-rgb: 252, 252, 252; --shadow-rgb: 0, 0, 0; --danger: #e5484d; }
+        :host([data-theme="auto"]) { --ink-rgb: 20, 20, 20; --elev-rgb: 252, 252, 252; --panel-rgb: 255, 255, 255; --shadow-rgb: 0, 0, 0; --danger: #e5484d; }
       }
       * { box-sizing: border-box; }
       .tag, .lb {
@@ -352,16 +404,18 @@
       .insert { position: fixed; z-index: 2147483646; display: none; pointer-events: none; border-radius: 2px; background: ${BLUE}; box-shadow: 0 0 0 1px rgba(255,255,255,.6); }
 
       .panel {
-        /* A side panel docked to the right edge, like Figma's design panel. The page is pushed left to make room. */
-        position: fixed; z-index: 2147483646; top: 0; right: 0; bottom: 0; width: 260px; display: none; padding: 4px 0 16px;
-        background: rgb(var(--elev-rgb)); color: rgba(var(--ink-rgb), .9);
+        /* Figma's design panel (UI3), docked to the right edge. The page is pushed left to make room.
+           Its grid: 16px in, two 1fr columns, a 24px icon column, 8px out; 24px fields, labels above them. */
+        position: fixed; z-index: 2147483646; top: 0; right: 0; bottom: 0; width: 250px; display: none; padding: 0 0 16px;
+        background: rgb(var(--panel-rgb)); color: rgba(var(--ink-rgb), .9);
         box-shadow: inset 1px 0 0 rgba(var(--ink-rgb), .1);
-        font: 460 12px/1 "PTK Camera", ui-sans-serif, system-ui, -apple-system, sans-serif; letter-spacing: -0.0025em;
+        font: 450 11px/16px Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; letter-spacing: .005em;
         -webkit-font-smoothing: antialiased; user-select: none;
         overflow: auto; overscroll-behavior: contain;
+        --fbg: rgba(var(--ink-rgb), .05); --line: rgba(var(--ink-rgb), .1); --fg2: rgba(var(--ink-rgb), .5); --fg3: rgba(var(--ink-rgb), .28); --fblue: #0d99ff;
       }
       /* Add to Figma: the panel's one action, full width at the bottom. */
-      .panel section[data-sec="figma"] { padding-top: 16px; }
+      .panel section[data-sec="figma"] { padding: 16px 8px 0 16px; }
       .panel .addfig {
         all: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: center; width: 100%; height: 32px;
         border-radius: 8px; cursor: pointer; background: rgb(var(--ink-rgb)); color: rgb(var(--elev-rgb)); font-weight: 520; font-size: 12px;
@@ -377,7 +431,8 @@
         box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), .1), 0 10px 40px rgba(var(--shadow-rgb), .25);
         font: 460 12px/1 "PTK Camera", ui-sans-serif, system-ui, -apple-system, sans-serif; letter-spacing: -0.0025em; -webkit-font-smoothing: antialiased; user-select: none;
       }
-      .layers .lh { padding: 12px 12px 8px; font-weight: 520; }
+      .layers .lh { padding: 12px 12px 8px; font-weight: 520; cursor: grab; touch-action: none; }
+      .layers[data-dragging], .layers[data-dragging] * { cursor: grabbing !important; }
       .layers .lt { overflow: auto; overscroll-behavior: contain; padding: 0 6px 8px; }
       .layers .row { display: flex; align-items: center; gap: 4px; height: 26px; padding-right: 8px; border-radius: 6px; cursor: default; white-space: nowrap; }
       .layers .row:hover { background: rgba(var(--ink-rgb), .06); }
@@ -398,45 +453,103 @@
       .layers .row.dragging { opacity: .45; }
       .layers .rename { all: unset; flex: 1; min-width: 0; height: 20px; padding: 0 4px; margin-left: -4px; border-radius: 4px;
         background: rgb(var(--elev-rgb)); box-shadow: inset 0 0 0 1px ${BLUE}; color: rgb(var(--ink-rgb)); cursor: text; }
-      .panel .hint { margin: 0; padding: 12px; color: rgba(var(--ink-rgb), .5); line-height: 1.4; }
+      .panel .hint { margin: 0; padding: 16px; color: var(--fg2); }
       .panel[data-empty] section, .panel:not([data-empty]) .hint { display: none; }
-      .panel header { padding: 10px 12px 8px; border-bottom: 1px solid rgba(var(--ink-rgb), .08); display: grid; gap: 4px; }
-      .panel .el { color: rgba(var(--ink-rgb), .9); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .panel .comp { color: rgba(var(--ink-rgb), .4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .panel section { padding: 10px 12px 0; }
-      .panel section[hidden] { display: none; }
-      .panel h4 { all: unset; display: flex; align-items: center; justify-content: space-between; height: 20px; margin-bottom: 6px; color: rgba(var(--ink-rgb), .5); }
-      .panel .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-      .panel .row4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 6px; }
-      .panel .row4[hidden] { display: none; }
-      .panel .row1 { display: grid; grid-template-columns: 1fr; }
-      .panel section[data-sec="type"] .row, .panel section[data-sec="type"] .row1 { margin-bottom: 6px; }
-      /* Typography: dropdown fields and segmented alignment, like Figma's text panel. */
-      .panel .f.sel { position: relative; padding: 0; }
-      .panel .f.sel select { all: unset; box-sizing: border-box; display: block; width: 100%; height: 28px; line-height: 28px; padding: 0 22px 0 8px; color: rgba(var(--ink-rgb), .9); cursor: pointer;
+      .panel [hidden] { display: none !important; }
+      .panel header { display: grid; gap: 2px; padding: 12px 8px 12px 16px; }
+      .panel .el { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .panel .comp { color: var(--fg2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .panel section { border-top: 1px solid var(--line); padding: 0 0 12px; }
+      .panel section[data-none] { padding-bottom: 0; }
+      .panel h4 { all: unset; display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 8px 0 16px; font-weight: 600; }
+      .panel section[data-none] h4 { color: var(--fg2); font-weight: 450; }
+      .panel h4 .acts { display: flex; gap: 8px; }
+      .panel .lbl { display: grid; grid-template-columns: 1fr 1fr 24px; column-gap: 8px; height: 16px; margin-bottom: 4px; padding: 0 8px 0 16px; color: var(--fg2); }
+      .panel .row { display: grid; grid-template-columns: 1fr 1fr 24px; column-gap: 8px; align-items: center; margin-bottom: 4px; padding: 0 8px 0 16px; }
+      .panel .row.top { align-items: start; }
+      .panel .s2 { grid-column: span 2; }
+      .panel .c3 { grid-column: 3; }
+
+      /* Icon buttons: 24px, the panel's third column and section headers. Pressed is Figma's blue. */
+      .panel .ib { all: unset; box-sizing: border-box; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 5px; color: rgba(var(--ink-rgb), .9); }
+      .panel .ib:hover { background: var(--fbg); }
+      .panel .ib[aria-pressed="true"] { background: rgba(13, 153, 255, .14); color: var(--fblue); }
+      .panel .ib[aria-disabled="true"] { color: var(--fg3); pointer-events: none; }
+      .panel .ib:focus-visible, .panel .seg button:focus-visible, .panel .tabs button:focus-visible, .panel .agrid button:focus-visible { outline: 1px solid var(--fblue); outline-offset: -1px; }
+      .panel svg { display: block; width: 24px; height: 24px; flex: none; }
+      .panel svg .s { fill: none; stroke: currentColor; stroke-width: 1; }
+
+      /* Fields: 24px, 5px corners, a 24px icon or letter that scrubs, then the value. */
+      .panel .f { position: relative; display: flex; align-items: center; min-width: 0; height: 24px; border-radius: 5px; background: var(--fbg); box-shadow: inset 0 0 0 1px transparent; }
+      .panel .f:hover { box-shadow: inset 0 0 0 1px var(--line); }
+      .panel .f:focus-within { box-shadow: inset 0 0 0 1px var(--fblue); }
+      .panel .k { flex: none; display: grid; place-items: center; width: 24px; height: 24px; color: var(--fg2); cursor: ew-resize; }
+      .panel .f input { all: unset; flex: 1; min-width: 0; height: 24px; padding-right: 6px; color: rgba(var(--ink-rgb), .9); font: inherit; font-variant-numeric: tabular-nums; cursor: default; }
+      .panel .f input:focus { cursor: text; }
+      .panel .f input:placeholder-shown { color: var(--fg2); }
+      /* Read-only (position inside auto layout): an outline, the value dimmed, like Figma. */
+      .panel .f[data-ro] { background: none; box-shadow: inset 0 0 0 1px var(--line); }
+      .panel .f[data-ro] .k { cursor: default; color: rgba(var(--ink-rgb), .9); }
+      .panel .f[data-ro] input { color: var(--fg3); pointer-events: none; }
+      /* Resizing: Fill / Hug after the value, a chevron for Fixed; a native menu opens over it. */
+      .panel .mode { position: relative; flex: none; display: flex; align-items: center; height: 24px; padding: 0 6px 0 2px; color: rgba(var(--ink-rgb), .9); }
+      .panel .mode svg { width: 16px; height: 16px; color: var(--fg2); }
+      .panel .mode select, .panel .dd select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; font: inherit; }
+      .panel .dd { position: relative; flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-left: 1px solid rgb(var(--panel-rgb)); color: var(--fg2); }
+      .panel .dd svg { width: 16px; height: 16px; }
+      .panel .f.sel { padding: 0; }
+      .panel .f.sel select { all: unset; box-sizing: border-box; display: block; width: 100%; height: 24px; line-height: 24px; padding: 0 24px 0 8px; color: rgba(var(--ink-rgb), .9);
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .panel .f.sel select option { color: #141414; }
-      .panel .f.sel .caret { position: absolute; right: 8px; top: 11px; width: 6px; height: 6px; pointer-events: none;
-        border-right: 1.5px solid rgba(var(--ink-rgb), .5); border-bottom: 1.5px solid rgba(var(--ink-rgb), .5); rotate: 45deg; translate: 0 -2px; }
-      .panel .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px; border-radius: 8px; background: rgba(var(--ink-rgb), .05); }
-      .panel .seg button { all: unset; display: grid; place-items: center; height: 24px; border-radius: 6px; cursor: pointer; color: rgba(var(--ink-rgb), .55); transition: background-color .12s, color .12s; }
-      .panel .seg button:hover { color: rgba(var(--ink-rgb), .9); }
-      .panel .seg button[aria-checked="true"] { background: rgba(var(--ink-rgb), .14); color: rgb(var(--ink-rgb)); }
-      .panel .seg button:focus-visible { outline: 2px solid ${BLUE}; outline-offset: 1px; }
-      .panel .seg svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-      /* Colour fields: a swatch that opens the system picker, then the value as text (hex, rgba, none). */
-      .panel .f.c .sw {
-        position: relative; flex: none; width: 14px; height: 14px; border-radius: 4px; overflow: hidden; cursor: pointer;
-        box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), .2);
-        background-image: linear-gradient(var(--sw, transparent), var(--sw, transparent)), repeating-conic-gradient(rgba(var(--ink-rgb), .25) 0 25%, transparent 0 50%);
-        background-size: auto, 6px 6px;
-      }
-      .panel .f.c .sw { all: unset; box-sizing: border-box; position: relative; flex: none; width: 14px; height: 14px; border-radius: 4px; cursor: pointer;
-        box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), .2);
-        background-image: linear-gradient(var(--sw, transparent), var(--sw, transparent)), repeating-conic-gradient(rgba(var(--ink-rgb), .25) 0 25%, transparent 0 50%);
+      .panel .f.sel .caret { position: absolute; right: 4px; top: 4px; width: 16px; height: 16px; pointer-events: none; color: var(--fg2); }
+      .panel .f.sel .caret svg { width: 16px; height: 16px; }
+
+      /* Button groups: each button its own grey tile with 1px of panel between (alignment, rotate and flip). */
+      .panel .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 1px; height: 24px; border-radius: 5px; overflow: hidden; }
+      .panel .seg button { all: unset; display: grid; place-items: center; height: 24px; background: var(--fbg); color: rgba(var(--ink-rgb), .9); }
+      .panel .seg button:hover { background: rgba(var(--ink-rgb), .09); }
+      .panel .seg button[aria-disabled="true"] { color: var(--fg3); pointer-events: none; }
+      /* Tabs: one grey track, the chosen option a raised panel-coloured tile (flow, text alignment). */
+      .panel .tabs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; height: 24px; border-radius: 5px; background: var(--fbg); }
+      .panel .tabs button { all: unset; display: grid; place-items: center; height: 24px; border-radius: 5px; color: var(--fg2); }
+      .panel .tabs button:hover { color: rgba(var(--ink-rgb), .9); }
+      .panel .tabs button[aria-checked="true"] { background: rgb(var(--panel-rgb)); box-shadow: inset 0 0 0 1px var(--line); color: rgba(var(--ink-rgb), .9); }
+      .panel .tabs svg { width: 24px; height: 24px; }
+
+      /* Auto layout alignment: nine dots, the chosen spot drawn as Figma's blue bars. */
+      .panel .agrid { display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); height: 56px; padding: 2px 4px; border-radius: 5px; background: var(--fbg); }
+      .panel .agrid button { all: unset; display: grid; place-items: center; color: var(--fg3); }
+      .panel .agrid button::before { content: ""; width: 2px; height: 2px; border-radius: 1px; background: currentColor; }
+      .panel .agrid button svg { display: none; width: 16px; height: 16px; }
+      .panel .agrid button:hover::before, .panel .agrid button[aria-checked="true"]::before { display: none; }
+      .panel .agrid button:hover svg { display: block; color: var(--fg3); }
+      .panel .agrid button[aria-checked="true"] svg { display: block; color: var(--fblue); }
+
+      .panel .chk { display: flex; align-items: center; gap: 8px; height: 24px; }
+      .panel .chk input { all: unset; box-sizing: border-box; flex: none; width: 16px; height: 16px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), .2); }
+      .panel .chk input:checked { background: var(--fblue) center / 12px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.5l4.5-5' fill='none' stroke='%23fff' stroke-width='1.5'/%3E%3C/svg%3E"); box-shadow: none; }
+      .panel .chk input:focus-visible { outline: 1px solid var(--fblue); outline-offset: 1px; }
+
+      /* Colour rows: swatch and hex, then opacity in %, one field split by a 1px line; then eye and minus slots. */
+      .panel .crow { display: grid; grid-template-columns: 1fr 24px 24px; column-gap: 8px; align-items: center; margin-bottom: 4px; padding: 0 8px 0 16px; }
+      .panel .cf { display: flex; min-width: 0; height: 24px; border-radius: 5px; background: var(--fbg); }
+      .panel .cf .f { background: none; border-radius: 5px; }
+      .panel .cf .f.c { flex: 1; gap: 8px; padding-left: 5px; }
+      .panel .cf .f.a { flex: none; width: 56px; padding-left: 8px; border-left: 1px solid rgb(var(--panel-rgb)); border-radius: 0 5px 5px 0; }
+      .panel .cf .f.a input { padding-right: 2px; }
+      .panel .cf .f.a .pct { padding-right: 8px; color: var(--fg2); }
+      .panel .f.c input { text-transform: uppercase; }
+      .panel .f.c .sw { all: unset; box-sizing: border-box; position: relative; flex: none; width: 14px; height: 14px; border-radius: 2px;
+        box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), .1);
+        background-image: linear-gradient(var(--sw, transparent), var(--sw, transparent)), repeating-conic-gradient(rgba(var(--ink-rgb), .2) 0 25%, transparent 0 50%);
         background-size: auto, 6px 6px; }
-      .panel .f.c .sw:focus-visible { outline: 2px solid ${BLUE}; outline-offset: 2px; }
-      .panel .f.c .sw[aria-expanded="true"] { box-shadow: 0 0 0 2px rgb(var(--elev-rgb)), 0 0 0 3px ${BLUE}; }
+      .panel .f.c .sw:focus-visible { outline: 1px solid var(--fblue); outline-offset: 1px; }
+      .panel .f.c .sw[aria-expanded="true"] { box-shadow: 0 0 0 1px rgb(var(--panel-rgb)), 0 0 0 2px var(--fblue); }
+      .panel .erow .f { padding-right: 8px; gap: 0; }
+      .panel .erow .ic { flex: none; display: grid; place-items: center; width: 24px; height: 24px; color: var(--fg2); }
+      .panel .erow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .panel .erow .val { color: var(--fg2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+      .panel .cp { margin: 4px 8px 8px 16px; }
 
       /* PERMANENT ui's colour picker, unfolded in place under the field: presets, a saturation/brightness
          field, a hue strip, then hex and the eyedropper. Hue is kept while dragging through grey or black. */
@@ -476,21 +589,6 @@
       .cp-drop:focus-visible { outline: 2px solid ${BLUE}; outline-offset: 2px; }
       .cp-drop svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
       @media (prefers-reduced-motion: reduce) { .cp, .cp-preset, .cp-knob, .cp-drop { animation: none; transition-duration: 1ms; } }
-      .panel .f {
-        display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 6px; border-radius: 8px;
-        background: rgba(var(--ink-rgb), .05); box-shadow: inset 0 0 0 1px transparent; transition: box-shadow .12s;
-      }
-      .panel .f:hover { box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), .1); }
-      .panel .f:focus-within { box-shadow: inset 0 0 0 1px ${BLUE}; }
-      .panel .k { flex: none; min-width: 12px; color: rgba(var(--ink-rgb), .4); cursor: ew-resize; text-align: center; }
-      .panel .f input {
-        all: unset; min-width: 0; width: 100%; color: rgba(var(--ink-rgb), .9); font: inherit; font-variant-numeric: tabular-nums; cursor: text;
-      }
-      .panel .f input:placeholder-shown { color: rgba(var(--ink-rgb), .4); }
-      .panel .indep { all: unset; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; cursor: pointer; color: rgba(var(--ink-rgb), .5); }
-      .panel .indep:hover { background: rgba(var(--ink-rgb), .05); color: rgba(var(--ink-rgb), .9); }
-      .panel .indep[aria-pressed="true"] { background: rgba(var(--ink-rgb), .1); color: rgb(var(--ink-rgb)); }
-      .panel .indep svg { width: 14px; height: 14px; }
       @media (prefers-reduced-motion: reduce) { button, .handle, .band { transition: none; } }
     </style>
     <div class="box hover"></div>
@@ -503,73 +601,129 @@
     <div class="mtag"></div>
     <aside class="panel" aria-label="Selected element">
       <header><span class="el"></span><span class="comp"></span></header>
-      <p class="hint">Select an element to edit its radius, spacing, fill and border.</p>
-      <section data-sec="radius">
-        <h4>Radius</h4>
-        <div class="row"><label class="f" data-f="radius" title="Corner radius"><span class="k">◜</span><input inputmode="decimal" aria-label="Corner radius"></label></div>
-      </section>
-      <section data-sec="gap">
-        <h4>Gap</h4>
-        <div class="row"><label class="f" data-f="gap" title="Gap between items"><span class="k">⇹</span><input inputmode="decimal" aria-label="Gap"></label></div>
-      </section>
-      <section data-sec="padding">
-        <h4>Padding
-          <button class="indep" aria-pressed="false" title="Independent padding" aria-label="Independent padding">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/></svg>
-          </button>
-        </h4>
-        <div class="row" data-pair>
-          <label class="f" data-f="padding-left padding-right" title="Horizontal padding"><span class="k">H</span><input inputmode="decimal" aria-label="Horizontal padding"></label>
-          <label class="f" data-f="padding-top padding-bottom" title="Vertical padding"><span class="k">V</span><input inputmode="decimal" aria-label="Vertical padding"></label>
+      <p class="hint">Select an element to edit it.</p>
+      <section data-sec="position">
+        <h4>Position<button class="ib" type="button" data-act="absolute" aria-pressed="false" aria-label="Absolute position" title="Absolute position">${PI.absolute}</button></h4>
+        <div class="lbl"><span>Alignment</span></div>
+        <div class="row">
+          <div class="seg" role="group" aria-label="Horizontal alignment">
+            <button type="button" data-act="align-x" data-v="0" aria-label="Align left" title="Align left">${PI.alignL}</button><button type="button" data-act="align-x" data-v="1" aria-label="Align horizontal centers" title="Align horizontal centers">${PI.alignC}</button><button type="button" data-act="align-x" data-v="2" aria-label="Align right" title="Align right">${PI.alignR}</button>
+          </div>
+          <div class="seg" role="group" aria-label="Vertical alignment">
+            <button type="button" data-act="align-y" data-v="0" aria-label="Align top" title="Align top">${PI.alignT}</button><button type="button" data-act="align-y" data-v="1" aria-label="Align vertical centers" title="Align vertical centers">${PI.alignM}</button><button type="button" data-act="align-y" data-v="2" aria-label="Align bottom" title="Align bottom">${PI.alignB}</button>
+          </div>
         </div>
-        <div class="row4" data-four hidden>
-          <label class="f" data-f="padding-top" title="Top padding"><span class="k">T</span><input inputmode="decimal" aria-label="Top padding"></label>
-          <label class="f" data-f="padding-right" title="Right padding"><span class="k">R</span><input inputmode="decimal" aria-label="Right padding"></label>
-          <label class="f" data-f="padding-bottom" title="Bottom padding"><span class="k">B</span><input inputmode="decimal" aria-label="Bottom padding"></label>
-          <label class="f" data-f="padding-left" title="Left padding"><span class="k">L</span><input inputmode="decimal" aria-label="Left padding"></label>
+        <div class="lbl"><span>Position</span></div>
+        <div class="row">
+          <label class="f" data-f="x" data-ro title="Turn on absolute position to place it, or use Move (V)"><span class="k">X</span><input readonly tabindex="-1" aria-label="X"></label>
+          <label class="f" data-f="y" data-ro title="Turn on absolute position to place it, or use Move (V)"><span class="k">Y</span><input readonly tabindex="-1" aria-label="Y"></label>
+        </div>
+        <div class="lbl"><span>Rotation</span></div>
+        <div class="row">
+          <label class="f" data-f="rotate" title="Rotation"><span class="k">${PI.angle}</span><input inputmode="decimal" aria-label="Rotation"></label>
+          <div class="seg" role="group" aria-label="Rotate and flip">
+            <button type="button" data-act="rotate90" aria-label="Rotate 90°" title="Rotate 90°">${PI.rot90}</button><button type="button" data-act="flip-x" aria-label="Flip horizontal" title="Flip horizontal">${PI.flipH}</button><button type="button" data-act="flip-y" aria-label="Flip vertical" title="Flip vertical">${PI.flipV}</button>
+          </div>
         </div>
       </section>
-      <section data-sec="margin">
-        <h4>Margin</h4>
-        <div class="row4" style="margin-top:0">
-          <label class="f" data-f="margin-top" title="Top margin"><span class="k">T</span><input inputmode="decimal" aria-label="Top margin"></label>
-          <label class="f" data-f="margin-right" title="Right margin"><span class="k">R</span><input inputmode="decimal" aria-label="Right margin"></label>
-          <label class="f" data-f="margin-bottom" title="Bottom margin"><span class="k">B</span><input inputmode="decimal" aria-label="Bottom margin"></label>
-          <label class="f" data-f="margin-left" title="Left margin"><span class="k">L</span><input inputmode="decimal" aria-label="Left margin"></label>
+      <section data-sec="layout">
+        <h4><span class="ttl">Auto layout</span><button class="ib" type="button" data-act="autolayout" aria-pressed="false" aria-label="Auto layout">${PI.layout}</button></h4>
+        <div data-g="flow">
+          <div class="lbl"><span>Flow</span></div>
+          <div class="row">
+            <div class="tabs s2" data-f="flow" role="radiogroup" aria-label="Flow">
+              <button type="button" role="radio" data-v="free" aria-label="Freeform" title="Freeform">${PI.flowFree}</button><button type="button" role="radio" data-v="column" aria-label="Vertical" title="Vertical">${PI.flowCol}</button><button type="button" role="radio" data-v="row" aria-label="Horizontal" title="Horizontal">${PI.flowRow}</button><button type="button" role="radio" data-v="grid" aria-label="Grid" title="Grid">${PI.flowGrid}</button>
+            </div>
+            <button class="ib" type="button" data-act="wrap" aria-pressed="false" aria-label="Wrap" title="Wrap">${PI.wrap}</button>
+          </div>
+        </div>
+        <div class="lbl"><span>Resizing</span></div>
+        <div class="row">
+          <label class="f" data-f="width" title="Width"><span class="k">W</span><input inputmode="decimal" aria-label="Width"><span class="mode"><span class="mt"></span>${PI.chevron}<select data-mode="width" aria-label="Width resizing"><option value="fixed">Fixed width</option><option value="hug">Hug contents</option><option value="fill">Fill container</option></select></span></label>
+          <label class="f" data-f="height" title="Height"><span class="k">H</span><input inputmode="decimal" aria-label="Height"><span class="mode"><span class="mt"></span>${PI.chevron}<select data-mode="height" aria-label="Height resizing"><option value="fixed">Fixed height</option><option value="hug">Hug contents</option><option value="fill">Fill container</option></select></span></label>
+        </div>
+        <div data-g="align">
+          <div class="lbl"><span>Alignment</span><span data-g="gap">Gap</span></div>
+          <div class="row top">
+            <div class="agrid" role="radiogroup" aria-label="Alignment">${[0, 1, 2].flatMap((y) => [0, 1, 2].map((x) => `<button type="button" role="radio" data-x="${x}" data-y="${y}" aria-label="${["Top", "Middle", "Bottom"][y]} ${["left", "center", "right"][x]}"></button>`)).join("")}</div>
+            <label class="f" data-f="gap" data-g="gap" title="Gap between items"><span class="k"></span><input inputmode="decimal" aria-label="Gap"><span class="dd">${PI.chevron}<select data-gapmode aria-label="Gap mode"><option value="fixed">Fixed</option><option value="auto">Auto</option></select></span></label>
+          </div>
+        </div>
+        <div data-g="pad">
+          <div class="lbl"><span>Padding</span></div>
+          <div class="row" data-pair>
+            <label class="f" data-f="padding-left padding-right" title="Horizontal padding"><span class="k">${PI.padH}</span><input inputmode="decimal" aria-label="Horizontal padding"></label>
+            <label class="f" data-f="padding-top padding-bottom" title="Vertical padding"><span class="k">${PI.padV}</span><input inputmode="decimal" aria-label="Vertical padding"></label>
+            <button class="ib indep" type="button" aria-pressed="false" aria-label="Independent padding" title="Independent padding">${PI.padIndep}</button>
+          </div>
+          <div data-four hidden>
+            <div class="row">
+              <label class="f" data-f="padding-left" title="Left padding"><span class="k">${PI.padL}</span><input inputmode="decimal" aria-label="Left padding"></label>
+              <label class="f" data-f="padding-top" title="Top padding"><span class="k">${PI.padT}</span><input inputmode="decimal" aria-label="Top padding"></label>
+              <button class="ib indep" type="button" aria-pressed="true" aria-label="Independent padding" title="Independent padding">${PI.padIndep}</button>
+            </div>
+            <div class="row">
+              <label class="f" data-f="padding-right" title="Right padding"><span class="k">${PI.padR}</span><input inputmode="decimal" aria-label="Right padding"></label>
+              <label class="f" data-f="padding-bottom" title="Bottom padding"><span class="k">${PI.padB}</span><input inputmode="decimal" aria-label="Bottom padding"></label>
+            </div>
+          </div>
+        </div>
+        <div class="row" data-g="clip"><label class="chk s2"><input type="checkbox" data-act="clip" aria-label="Clip content">Clip content</label></div>
+      </section>
+      <section data-sec="appearance">
+        <h4>Appearance<span class="acts"><button class="ib" type="button" data-act="visible" aria-label="Hide" title="Hide">${PI.eye}</button></span></h4>
+        <div class="lbl"><span>Opacity</span><span>Corner radius</span></div>
+        <div class="row">
+          <label class="f" data-f="opacity" title="Opacity"><span class="k">${PI.opacity}</span><input inputmode="decimal" aria-label="Opacity"></label>
+          <label class="f" data-f="radius" title="Corner radius"><span class="k">${PI.radius}</span><input inputmode="decimal" aria-label="Corner radius"></label>
         </div>
       </section>
       <section data-sec="type">
         <h4>Typography</h4>
-        <div class="row1"><label class="f sel" data-f="font-family" title="Font"><select aria-label="Font"></select><span class="caret"></span></label></div>
+        <div class="row"><label class="f sel s2" data-f="font-family" title="Font"><select aria-label="Font"></select><span class="caret">${PI.chevron}</span></label></div>
         <div class="row">
-          <label class="f sel" data-f="font-weight" title="Weight"><select aria-label="Weight">${[100, 200, 300, 400, 460, 500, 520, 600, 700, 800, 900].map((w) => `<option value="${w}">${w}</option>`).join("")}</select><span class="caret"></span></label>
+          <label class="f sel" data-f="font-weight" title="Weight"><select aria-label="Weight">${[100, 200, 300, 400, 460, 500, 520, 600, 700, 800, 900].map((w) => `<option value="${w}">${w}</option>`).join("")}</select><span class="caret">${PI.chevron}</span></label>
           <label class="f" data-f="font-size" title="Font size"><span class="k">Aa</span><input inputmode="decimal" aria-label="Font size"></label>
         </div>
+        <div class="lbl"><span>Line height</span><span>Letter spacing</span></div>
         <div class="row">
           <label class="f" data-f="line-height" title="Line height"><span class="k">↕</span><input inputmode="decimal" aria-label="Line height"></label>
           <label class="f" data-f="letter-spacing" title="Letter spacing (%)"><span class="k">↔</span><input inputmode="decimal" aria-label="Letter spacing"></label>
         </div>
+        <div class="lbl"><span>Alignment</span></div>
         <div class="row">
-          <div class="seg" data-f="text-align" role="radiogroup" aria-label="Horizontal alignment">
-            <button type="button" data-v="left" aria-label="Align left"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/></svg></button><button type="button" data-v="center" aria-label="Align center"><svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M5.5 18h13"/></svg></button><button type="button" data-v="right" aria-label="Align right"><svg viewBox="0 0 24 24"><path d="M4 6h16M10 12h10M7 18h13"/></svg></button>
+          <div class="tabs" data-f="text-align" role="radiogroup" aria-label="Horizontal alignment">
+            <button type="button" role="radio" data-v="left" aria-label="Align left"><svg viewBox="0 0 24 24"><path class="s" d="M6.5 8.5h11m-11 3.5h7m-7 3.5h9"/></svg></button><button type="button" role="radio" data-v="center" aria-label="Align center"><svg viewBox="0 0 24 24"><path class="s" d="M6.5 8.5h11m-9 3.5h7m-8 3.5h9"/></svg></button><button type="button" role="radio" data-v="right" aria-label="Align right"><svg viewBox="0 0 24 24"><path class="s" d="M6.5 8.5h11m-7 3.5h7m-9 3.5h9"/></svg></button>
           </div>
-          <div class="seg" data-f="align-content" role="radiogroup" aria-label="Vertical alignment">
-            <button type="button" data-v="start" aria-label="Align top"><svg viewBox="0 0 24 24"><path d="M5 4h14M12 20V8m-4 4 4-4 4 4"/></svg></button><button type="button" data-v="center" aria-label="Align middle"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 3v5m-3-3 3 3 3-3M12 21v-5m-3 3 3-3 3 3"/></svg></button><button type="button" data-v="end" aria-label="Align bottom"><svg viewBox="0 0 24 24"><path d="M5 20h14M12 4v12m-4-4 4 4 4-4"/></svg></button>
+          <div class="tabs" data-f="align-content" role="radiogroup" aria-label="Vertical alignment">
+            <button type="button" role="radio" data-v="start" aria-label="Align top"><svg viewBox="0 0 24 24"><path class="s" d="M6.5 6.5h11M12 17.5v-8m-3 3 3-3 3 3"/></svg></button><button type="button" role="radio" data-v="center" aria-label="Align middle"><svg viewBox="0 0 24 24"><path class="s" d="M6.5 12h11M12 5.5v4m-2-2 2 2 2-2M12 18.5v-4m-2 2 2-2 2 2"/></svg></button><button type="button" role="radio" data-v="end" aria-label="Align bottom"><svg viewBox="0 0 24 24"><path class="s" d="M6.5 17.5h11M12 6.5v8m-3-3 3 3 3-3"/></svg></button>
           </div>
         </div>
       </section>
       <section data-sec="fill">
-        <h4>Fill</h4>
-        <div class="row1">
-          <div class="f c" data-f="fill" title="Background colour"><button class="sw" type="button" aria-label="Open fill colour picker" aria-expanded="false"></button><input class="hex" spellcheck="false" aria-label="Fill colour"></div>
+        <h4>Fill<button class="ib" type="button" data-act="add-fill" aria-label="Add fill" title="Add fill">${PI.plus}</button></h4>
+        <div class="crow" data-has>
+          <div class="cf"><div class="f c" data-f="fill" title="Fill colour"><button class="sw" type="button" aria-label="Open fill colour picker" aria-expanded="false"></button><input class="hex" spellcheck="false" aria-label="Fill colour"></div><label class="f a" data-f="fill-alpha" title="Fill opacity"><input inputmode="decimal" aria-label="Fill opacity"><span class="pct">%</span></label></div>
+          <span></span>
+          <button class="ib" type="button" data-act="remove-fill" aria-label="Remove fill" title="Remove fill">${PI.minus}</button>
         </div>
       </section>
       <section data-sec="border">
-        <h4>Border</h4>
-        <div class="row">
-          <label class="f" data-f="border" title="Border width"><span class="k">W</span><input inputmode="decimal" aria-label="Border width"></label>
-          <div class="f c" data-f="border-color" title="Border colour"><button class="sw" type="button" aria-label="Open border colour picker" aria-expanded="false"></button><input class="hex" spellcheck="false" aria-label="Border colour"></div>
+        <h4>Stroke<button class="ib" type="button" data-act="add-stroke" aria-label="Add stroke" title="Add stroke">${PI.plus}</button></h4>
+        <div class="crow" data-has>
+          <div class="cf"><div class="f c" data-f="border-color" title="Stroke colour"><button class="sw" type="button" aria-label="Open stroke colour picker" aria-expanded="false"></button><input class="hex" spellcheck="false" aria-label="Stroke colour"></div><label class="f a" data-f="border-alpha" title="Stroke opacity"><input inputmode="decimal" aria-label="Stroke opacity"><span class="pct">%</span></label></div>
+          <span></span>
+          <button class="ib" type="button" data-act="remove-stroke" aria-label="Remove stroke" title="Remove stroke">${PI.minus}</button>
         </div>
+        <div class="row" data-has><label class="f" data-f="border" title="Stroke weight"><span class="k">${PI.strokeW}</span><input inputmode="decimal" aria-label="Stroke weight"></label></div>
+      </section>
+      <section data-sec="effects">
+        <h4>Effects<button class="ib" type="button" data-act="add-effect" aria-label="Add effect" title="Add effect">${PI.plus}</button></h4>
+        <div class="elist"></div>
+      </section>
+      <section data-sec="colors">
+        <h4>Selection colors</h4>
+        <div class="sclist"></div>
       </section>
       <section data-sec="figma">
         <button class="addfig" type="button">Add to Figma</button>
@@ -898,6 +1052,22 @@
     } catch {}
   };
 
+  /* Hidden (⌥H): nothing of the toolkit shows and no tool is on; edits and the count are there when it comes back. */
+  let hiddenAll = false;
+  function setHiddenAll(next) {
+    if (next) {
+      if (editing) commit(editing);
+      if (composing) closeNote();
+      menuOpen = null;
+      tip.style.display = "none";
+      if (tool) setTool(null);
+    }
+    hiddenAll = next;
+    host.style.display = next ? "none" : "";
+    document.documentElement.toggleAttribute("data-ptk-hidden", next);
+    render();
+  }
+
   /* Collapsing puts the tools away; edits, pins and the count stay. */
   function setCollapsed(next) {
     collapsed = next;
@@ -1103,6 +1273,19 @@
     const step = e.shiftKey ? 10 : GRID; // ⇧ is Figma's big nudge
     return dir > 0 ? Math.floor(now / GRID) * GRID + step : Math.ceil(now / GRID) * GRID - step;
   };
+  /* The value the prompt compares against: what the page showed before this edit (prop, or "radius"). */
+  const baseOf = (el, prop) => {
+    if (prop === "radius") return radiusEdits.has(el) ? parseFloat(radiusEdits.get(el).shown) || 0 : currentRadius(el);
+    const pe = spaceEdits.get(el)?.props.get(prop) ?? styleEdits.get(el)?.props.get(prop);
+    return parseFloat(pe ? pe.shown : getComputedStyle(el).getPropertyValue(prop)) || 0;
+  };
+  /* An off-grid original (15px) is a stop too, so dragging, typing or stepping back to it drops the edit
+     instead of landing a pixel off and leaving a redundant line in the prompt. */
+  const snapNear = (v, free, base) => (Math.abs(v - base) < GRID / 2 ? base : snap(v, free));
+  const stepNear = (now, dir, e, base) => {
+    const next = stepValue(now, dir, e);
+    return (dir > 0 && now < base && next > base) || (dir < 0 && now > base && next < base) ? base : next;
+  };
 
   function drawsBox(el) {
     if (MEDIA.has(el.tagName)) return true;
@@ -1297,7 +1480,9 @@
       el.style.borderRadius = edit.inline;
       radiusEdits.delete(el);
     }
+    editVersion++;
     mark(el);
+    if (quiet) return;
     render();
     paint();
   }
@@ -1321,10 +1506,10 @@
 
   const radiusField = () => ({
     read: () => radiusLabel(selected, Math.round(currentRadius(selected))),
-    step: (dir, e) => setRadius(selected, stepValue(currentRadius(selected), dir, e)),
+    step: (dir, e) => setRadius(selected, stepNear(currentRadius(selected), dir, e, baseOf(selected, "radius"))),
     apply: (raw) => {
       if (raw === "full" || raw === "f") setRadius(selected, Infinity);
-      else if (!Number.isNaN(parseFloat(raw))) setRadius(selected, snap(parseFloat(raw)));
+      else if (!Number.isNaN(parseFloat(raw))) setRadius(selected, snapNear(parseFloat(raw), false, baseOf(selected, "radius")));
     },
   });
 
@@ -1342,7 +1527,7 @@
     if (drag?.kind !== "radius" || !selected) return;
     /* Dragging toward the middle of the box rounds the corner more, like Figma. */
     const delta = (e.clientX - drag.x + (e.clientY - drag.y)) / 2;
-    const v = snap(drag.start + delta, e.altKey || e.metaKey || e.ctrlKey);
+    const v = snapNear(drag.start + delta, e.altKey || e.metaKey || e.ctrlKey, baseOf(selected, "radius"));
     for (const el of selectedAll()) setRadius(el, v);
   });
   const endDrag = () => {
@@ -1410,7 +1595,9 @@
       }
     }
     if (!edit.props.size) spaceEdits.delete(el);
+    editVersion++;
     mark(el);
+    if (quiet) return;
     render();
     paint();
   }
@@ -1419,7 +1606,10 @@
 
   const BORDER_SIDES = (what) => SIDES.map((s) => `border-${s}-${what}`);
   const TYPE_PROPS = ["font-family", "font-weight", "font-size", "line-height", "letter-spacing", "text-align", "align-content", "color"];
-  const STYLE_PROPS = ["background-color", ...BORDER_SIDES("width"), ...BORDER_SIDES("style"), ...BORDER_SIDES("color"), ...TYPE_PROPS];
+  const STYLE_PROPS = ["background-color", ...BORDER_SIDES("width"), ...BORDER_SIDES("style"), ...BORDER_SIDES("color"), ...TYPE_PROPS,
+    /* The panel's layout and appearance controls. */
+    "opacity", "visibility", "rotate", "scale", "position", "overflow", "box-shadow", "display", "flex-direction", "flex-wrap", "justify-content",
+    "align-items", "justify-items", "align-self", "justify-self", "grid-template-columns", "width", "height", "flex-grow", "flex-basis", "left", "top"];
 
   /* Computed colours come back as rgb()/rgba(); people and prompts read hex. */
   function hexOf(color) {
@@ -1433,7 +1623,23 @@
   const isColorProp = (prop) => /color$/.test(prop);
   const shownStyle = (prop, v) => (isColorProp(prop) ? hexOf(v) : v);
 
-  function setStyle(el, props, value, keep = false) {
+  let editVersion = 0; // bumps on every value edit, so the panel knows when to measure again
+  let quiet = false; // inside batch(): many writes, one repaint
+  function batch(fn) {
+    if (quiet) return fn();
+    quiet = true;
+    try {
+      fn();
+    } finally {
+      quiet = false;
+    }
+    render();
+    paint();
+  }
+
+  /* label: how the prompt names the new value when the computed one says less ("fit-content (hug contents)", not "312px"). */
+  function setStyle(el, props, value, keep = false, label = null) {
+    editVersion++;
     const cs = getComputedStyle(el);
     if (!styleEdits.has(el)) styleEdits.set(el, { props: new Map(), ...describe(el) });
     const edit = styleEdits.get(el);
@@ -1444,6 +1650,7 @@
       const pe = edit.props.get(prop);
       el.style.setProperty(prop, value);
       pe.after = getComputedStyle(el).getPropertyValue(prop);
+      pe.label = label;
       /* keep: a value you set on purpose stays in the prompt even when it matches what the page computes
          (a border colour that equals the text colour it would otherwise inherit). */
       if (pe.after === pe.shown && !keep) {
@@ -1454,34 +1661,347 @@
     }
     if (!edit.props.size) styleEdits.delete(el);
     mark(el);
+    if (quiet) return;
     render();
     paint();
   }
 
+  /* Drop the edit of one prop: the element gets its own inline value back. */
+  function unsetStyle(el, prop) {
+    const edit = styleEdits.get(el);
+    const pe = edit?.props.get(prop);
+    if (!pe) return;
+    editVersion++;
+    if (pe.inline) el.style.setProperty(prop, pe.inline);
+    else el.style.removeProperty(prop);
+    edit.props.delete(prop);
+    if (!edit.props.size) styleEdits.delete(el);
+    mark(el);
+  }
+  /* What a prop showed before this round of edits: going back to it drops the edit. */
+  const shownOf = (el, prop) => styleEdits.get(el)?.props.get(prop)?.shown ?? getComputedStyle(el).getPropertyValue(prop);
+
   /* A width on a borderless element needs a style too, or nothing shows. */
   function setBorderWidth(el, v) {
     v = Math.max(0, v);
-    if (v > 0 && getComputedStyle(el).borderTopStyle === "none") setStyle(el, BORDER_SIDES("style"), "solid");
-    setStyle(el, BORDER_SIDES("width"), `${v}px`);
+    batch(() => {
+      if (v > 0 && getComputedStyle(el).borderTopStyle === "none") setStyle(el, BORDER_SIDES("style"), "solid");
+      setStyle(el, BORDER_SIDES("width"), `${v}px`);
+    });
   }
 
-  function setColor(el, f, raw) {
-    const v = raw.trim().toLowerCase();
-    const value = v === "none" || v === "transparent" ? "transparent" : /^[0-9a-f]{3,8}$/.test(v) ? `#${v}` : v;
-    if (!CSS.supports("color", value)) return;
-    if (f === "fill") setStyle(el, [isTextLayer(el) ? "color" : "background-color"], value); // a text layer's fill is its colour, like Figma
-    else {
-      if (getComputedStyle(el).borderTopStyle === "none") setBorderWidth(el, 1);
-      setStyle(el, BORDER_SIDES("color"), value, true);
+  /* ---------- colours: Figma keeps the colour and its opacity apart ---------- */
+
+  /* Any CSS colour as { rgb, a, hex } in sRGB. The canvas reads oklch, names and the rest the way the page draws them. */
+  const cctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+  function colorParts(c) {
+    cctx.fillStyle = "#000";
+    cctx.fillStyle = String(c);
+    const v = cctx.fillStyle;
+    let rgb;
+    let a = 1;
+    if (v.startsWith("#")) rgb = [1, 3, 5].map((i) => parseInt(v.slice(i, i + 2), 16));
+    else if (v.startsWith("rgb")) {
+      const n = v.match(/[\d.]+/g).map(Number);
+      rgb = n.slice(0, 3);
+      a = n[3] ?? 1;
+    } else {
+      cctx.clearRect(0, 0, 1, 1);
+      cctx.fillRect(0, 0, 1, 1);
+      const d = cctx.getImageData(0, 0, 1, 1).data;
+      rgb = [d[0], d[1], d[2]];
+      a = Math.round((d[3] / 255) * 100) / 100;
     }
+    return { rgb, a, hex: `#${rgb.map((x) => Math.round(x).toString(16).padStart(2, "0")).join("")}` };
+  }
+  const colorValue = ({ rgb, a }) =>
+    a <= 0 ? "transparent" : a >= 1 ? `#${rgb.map((x) => Math.round(x).toString(16).padStart(2, "0")).join("")}` : `rgba(${rgb.map(Math.round).join(", ")}, ${Math.round(a * 100) / 100})`;
+  /* A typed colour: hex with or without #, or any CSS colour, or none. Only a colour that names its own alpha changes the opacity. */
+  function typedColor(raw) {
+    const v = String(raw).trim().toLowerCase().replace(/ at \d+%$/, "");
+    if (!v) return null;
+    if (v === "none" || v === "transparent") return { a: 0 };
+    const css = /^#?([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(v) ? `#${v.replace(/^#/, "")}` : v;
+    if (!CSS.supports("color", css)) return null;
+    const c = colorParts(css);
+    return /^#?([0-9a-f]{4}|[0-9a-f]{8})$/.test(v) || /rgba|hsla|\//.test(v) ? c : { rgb: c.rgb };
+  }
+  /* A text layer's fill is its colour, like Figma. */
+  const colorProp = (el, f) => (f === "fill" ? (isTextLayer(el) ? "color" : "background-color") : "border-top-color");
+  function writeColor(el, f, next) {
+    const cur = colorParts(getComputedStyle(el).getPropertyValue(colorProp(el, f)));
+    const c = { rgb: next.rgb ?? cur.rgb, a: next.a ?? (next.rgb && cur.a === 0 ? 1 : cur.a) };
+    const value = colorValue(c);
+    if (f === "fill") return setStyle(el, [colorProp(el, f)], value);
+    const cs = getComputedStyle(el);
+    const bare = cs.borderTopStyle === "none" || !px(cs, "border-top-width");
+    batch(() => {
+      if (bare && c.a > 0) setBorderWidth(el, 1);
+      setStyle(el, BORDER_SIDES("color"), value, bare); // on a new border the colour stays, even when it matches currentColor
+    });
+  }
+
+  /* box-shadow as a list: commas inside rgba() do not split it. */
+  const shadowList = (v) => (!v || v === "none" ? [] : v.split(/,(?![^(]*\))/).map((x) => x.trim()));
+  const FIGMA_SHADOW = "0px 4px 4px 0px rgba(0, 0, 0, 0.25)"; // Figma's default drop shadow
+
+  /* ---------- Resizing: Fixed, Hug and Fill, in CSS terms for the element's parent ---------- */
+
+  function axisOf(el, f) {
+    const w = f === "width";
+    const pcs = el.parentElement ? getComputedStyle(el.parentElement) : null;
+    const flex = !!pcs && /flex/.test(pcs.display);
+    const grid = !!pcs && /grid/.test(pcs.display);
+    return { w, pcs, flex, grid, main: flex && w === !pcs.flexDirection.startsWith("column") };
+  }
+  const sizeOf = (el, f) => (el instanceof HTMLElement ? (f === "width" ? el.offsetWidth : el.offsetHeight) : el.getBoundingClientRect()[f]);
+  const outerOf = (el, w) => {
+    const cs = getComputedStyle(el);
+    return w ? el.offsetWidth + px(cs, "margin-left") + px(cs, "margin-right") : el.offsetHeight + px(cs, "margin-top") + px(cs, "margin-bottom");
+  };
+  const innerOf = (p, w) => {
+    const cs = getComputedStyle(p);
+    return w ? p.clientWidth - px(cs, "padding-left") - px(cs, "padding-right") : p.clientHeight - px(cs, "padding-top") - px(cs, "padding-bottom");
+  };
+  /* Its size when it hugs its content: the sizing overridden for one synchronous layout, then put back. */
+  function hugSize(el) {
+    const saved = el.getAttribute("style");
+    for (const [prop, v] of [["width", "fit-content"], ["height", "fit-content"], ["flex-grow", "0"], ["flex-basis", "auto"], ["align-self", "flex-start"], ["justify-self", "start"]]) {
+      el.style.setProperty(prop, v, "important");
+    }
+    const size = { width: el.offsetWidth, height: el.offsetHeight };
+    if (saved == null) el.removeAttribute("style");
+    else el.setAttribute("style", saved);
+    return size;
+  }
+  const BLOCKISH = /^(block|flex|grid|list-item|table|flow-root)$/;
+  function sizeMode(el, f) {
+    if (!(el instanceof HTMLElement) || !el.parentElement) return "fixed";
+    const { w, pcs, flex, grid, main } = axisOf(el, f);
+    const cs = getComputedStyle(el);
+    const size = sizeOf(el, f);
+    if (main && parseFloat(cs.flexGrow) > 0) return "fill";
+    const hug = hugSize(el)[f];
+    const filled = Math.abs(outerOf(el, w) - innerOf(el.parentElement, w)) < 1;
+    const stretch = (self, items) => /stretch|normal|legacy/.test(/auto|normal/.test(self) ? items : self);
+    const stretched = (flex && !main && stretch(cs.alignSelf, pcs.alignItems)) || (grid && stretch(w ? cs.justifySelf : cs.alignSelf, w ? pcs.justifyItems : pcs.alignItems));
+    if (stretched && Math.abs(hug - size) >= 1 && (grid || filled)) return "fill";
+    if (!flex && !grid && w && BLOCKISH.test(cs.display) && !/absolute|fixed/.test(cs.position) && cs.float === "none" && filled) return "fill";
+    return Math.abs(hug - size) < 1 ? "hug" : "fixed";
+  }
+  /* v: a typed size (border box, like Figma's W and H); otherwise Fixed keeps the current one. */
+  function setSize(el, f, mode, v) {
+    if (!(el instanceof HTMLElement)) return;
+    const { w, flex, grid, main } = axisOf(el, f);
+    const cs = getComputedStyle(el);
+    const was = sizeMode(el, f);
+    const selfProp = grid && w ? "justify-self" : "align-self";
+    batch(() => {
+      if (mode === "fill") {
+        if (main) {
+          unsetStyle(el, f);
+          setStyle(el, ["flex-grow"], "1");
+          setStyle(el, ["flex-basis"], "0%");
+        } else if (flex || grid) {
+          setStyle(el, [selfProp], "stretch");
+          setStyle(el, [f], "auto", false, "auto (fill container)");
+        } else if (w && BLOCKISH.test(cs.display)) setStyle(el, [f], "auto", false, "auto (fill container)");
+        else setStyle(el, [f], "100%", false, "100% (fill container)");
+        return;
+      }
+      if (main) {
+        setStyle(el, ["flex-grow"], "0");
+        setStyle(el, ["flex-basis"], "auto");
+      } else if (flex || grid) unsetStyle(el, selfProp);
+      if (mode === "hug") return setStyle(el, [f], "fit-content", false, "fit-content (hug contents)");
+      const sides = w ? ["left", "right"] : ["top", "bottom"];
+      const box = cs.boxSizing === "content-box" ? sides.reduce((t, s) => t + px(cs, `padding-${s}`) + px(cs, `border-${s}-width`), 0) : 0;
+      setStyle(el, [f], `${Math.round(Math.max(0, (v ?? sizeOf(el, f)) - box) * 10) / 10}px`, was !== "fixed"); // Fixed on purpose stays, even at the same size
+    });
+  }
+
+  /* ---------- Flow and alignment ---------- */
+
+  /* Freeform is normal block layout, Vertical and Horizontal are flexbox, Grid is CSS grid (two columns to start). */
+  function setFlow(el, v) {
+    const base = shownOf(el, "display");
+    const inline = getComputedStyle(el).display.startsWith("inline");
+    batch(() => {
+      if (v === "free") {
+        setStyle(el, ["display"], /flex|grid/.test(base) ? (inline ? "inline-block" : "block") : base);
+        ["flex-direction", "flex-wrap", "grid-template-columns", "justify-content", "align-items", "justify-items"].forEach((prop) => unsetStyle(el, prop));
+      } else if (v === "grid") {
+        setStyle(el, ["display"], /grid/.test(base) ? base : inline ? "inline-grid" : "grid");
+        ["flex-direction", "flex-wrap"].forEach((prop) => unsetStyle(el, prop));
+        if (getComputedStyle(el).gridTemplateColumns === "none") setStyle(el, ["grid-template-columns"], "repeat(2, minmax(0, 1fr))", false, "repeat(2, minmax(0, 1fr))");
+      } else {
+        setStyle(el, ["display"], /flex/.test(base) ? base : inline ? "inline-flex" : "flex");
+        unsetStyle(el, "grid-template-columns");
+        setStyle(el, ["flex-direction"], v);
+      }
+    });
+  }
+  function setGapMode(el, mode) {
+    const base = shownOf(el, "justify-content");
+    setStyle(el, ["justify-content"], mode === "auto" ? "space-between" : /space/.test(base) ? "flex-start" : base);
+  }
+
+  const AL = ["flex-start", "center", "flex-end"];
+  const alignIndex = (v) => (/center/.test(v) ? 1 : /end|right/.test(v) ? 2 : 0);
+  /* A spot the original value already means writes the original, so clicking back drops the edit. */
+  function setAlignProp(el, prop, i, values = AL, resolve = (v) => v) {
+    const base = shownOf(el, prop);
+    const now = resolve(base);
+    setStyle(el, [prop], alignIndex(now) === i && !/space/.test(now) ? base : values[i]);
+  }
+  /* The nine-dot grid: x and y become justify-content and align-items along the flow (justify-items in a grid). */
+  function alignNow(cs) {
+    if (/grid/.test(cs.display)) return [alignIndex(cs.justifyItems), alignIndex(cs.alignItems)];
+    const m = alignIndex(cs.justifyContent);
+    const c = alignIndex(cs.alignItems);
+    return cs.flexDirection.startsWith("column") ? [c, m] : [m, c];
+  }
+  function setAlign(el, x, y) {
+    const cs = getComputedStyle(el);
+    batch(() => {
+      if (/grid/.test(cs.display)) {
+        setAlignProp(el, "justify-items", x, ["start", "center", "end"]);
+        setAlignProp(el, "align-items", y, ["start", "center", "end"]);
+        return;
+      }
+      const col = cs.flexDirection.startsWith("column");
+      if (!/space/.test(cs.justifyContent)) setAlignProp(el, "justify-content", col ? y : x);
+      setAlignProp(el, "align-items", col ? x : y);
+    });
+  }
+  /* Position > Alignment: where the element sits in its parent's layout, on the axes CSS lets it choose. */
+  function selfAlignProp(el, axis) {
+    const pcs = el.parentElement && getComputedStyle(el.parentElement);
+    if (!pcs) return null;
+    if (/grid/.test(pcs.display)) return axis === "x" ? "justify-self" : "align-self";
+    if (/flex/.test(pcs.display) && (axis === "x") === pcs.flexDirection.startsWith("column")) return "align-self";
+    return null;
+  }
+  function setSelfAlign(el, axis, i) {
+    const prop = selfAlignProp(el, axis);
+    if (!prop) return;
+    const pcs = getComputedStyle(el.parentElement);
+    const items = prop === "justify-self" ? pcs.justifyItems : pcs.alignItems;
+    setAlignProp(el, prop, i, /grid/.test(pcs.display) ? ["start", "center", "end"] : AL, (v) => (/auto|normal|legacy/.test(v) ? items : v));
+  }
+
+  /* Absolute position, like Figma's: the element stays where it is, at its size, placed in its parent (made
+     relative if it was static) by left and top, which X and Y then edit. Off puts it back in the flow. */
+  function setAbsolute(el, on) {
+    const p = el.parentElement;
+    if (!p) return;
+    batch(() => {
+      if (!on) {
+        ["position", "left", "top", "width", "height"].forEach((prop) => unsetStyle(el, prop));
+        if (![...p.children].some((c) => /absolute|fixed/.test(getComputedStyle(c).position))) unsetStyle(p, "position");
+        if (/absolute|fixed/.test(getComputedStyle(el).position)) setStyle(el, ["position"], "relative"); // absolute in the page's own CSS
+        return;
+      }
+      const r = el.getBoundingClientRect();
+      const size = { width: el.offsetWidth, height: el.offsetHeight };
+      if (getComputedStyle(p).position === "static") {
+        prepare(p);
+        setStyle(p, ["position"], "relative");
+      }
+      setSize(el, "width", "fixed", size.width);
+      setSize(el, "height", "fixed", size.height);
+      setStyle(el, ["position"], "absolute");
+      const pr = p.getBoundingClientRect();
+      const pcs = getComputedStyle(p);
+      const cs = getComputedStyle(el);
+      const at = (d, side) => `${Math.round((d - px(pcs, `border-${side}-width`) - px(cs, `margin-${side}`)) * 10) / 10}px`;
+      setStyle(el, ["left"], at(r.left - pr.left + p.scrollLeft, "left"), true);
+      setStyle(el, ["top"], at(r.top - pr.top + p.scrollTop, "top"), true);
+    });
+  }
+  /* X and Y of an absolute element: move left and top by the difference, so margins and borders stay out of it. */
+  function setXY(el, f, v) {
+    const r = el.getBoundingClientRect();
+    const pr = el.parentElement.getBoundingClientRect();
+    const now = f === "x" ? r.left - pr.left : r.top - pr.top;
+    const prop = f === "x" ? "left" : "top";
+    setStyle(el, [prop], `${Math.round((px(getComputedStyle(el), prop) + v - now) * 10) / 10}px`, true);
+  }
+
+  /* Rotation is CSS's (clockwise); flips are a negative scale. */
+  const rotOf = (el) => {
+    const m = String(getComputedStyle(el).rotate).match(/(-?[\d.]+)deg/);
+    return m ? Math.round(parseFloat(m[1]) * 10) / 10 : 0;
+  };
+  function setRotate(el, v) {
+    let d = Math.round(v * 10) / 10 % 360;
+    if (d > 180) d -= 360;
+    if (d <= -180) d += 360;
+    setStyle(el, ["rotate"], d ? `${d}deg` : "none");
+  }
+  function flip(el, axis) {
+    const s = getComputedStyle(el).scale;
+    const n = !s || s === "none" ? [1, 1] : s.split(" ").map(Number);
+    const [x, y] = [n[0], n[1] ?? n[0]];
+    const [nx, ny] = axis === "x" ? [-x, y] : [x, -y];
+    setStyle(el, ["scale"], nx === 1 && ny === 1 ? "none" : `${nx} ${ny}`);
+  }
+
+  /* ---------- Selection colors: every colour in the selection, edited everywhere it is used ---------- */
+
+  let scGroups = []; // { rgb, a, hex, members: [[el, prop]] }
+  function collectColors() {
+    const groups = new Map();
+    const roots = selectedAll();
+    const els = [];
+    for (const r of roots) {
+      els.push(r);
+      for (const n of r.querySelectorAll("*")) {
+        if (els.length >= 400) break;
+        els.push(n);
+      }
+    }
+    for (const el of els) {
+      if (!roots.includes(el) && !layerish(el)) continue;
+      if (el instanceof SVGElement && el.tagName.toLowerCase() !== "svg") continue;
+      const cs = getComputedStyle(el);
+      if (cs.display === "none" || cs.visibility === "hidden") continue;
+      const add = (prop, c) => {
+        const parts = colorParts(c);
+        if (!parts.a) return;
+        const key = `${parts.hex}/${parts.a}`;
+        if (!groups.has(key)) groups.set(key, { ...parts, members: [] });
+        groups.get(key).members.push([el, prop]);
+      };
+      if (hasOwnText(el)) add("color", cs.color);
+      add("background-color", cs.backgroundColor);
+      if (cs.borderTopStyle !== "none" && px(cs, "border-top-width") > 0) add("border-color", cs.borderTopColor);
+    }
+    return [...groups.values()].slice(0, 12);
+  }
+  function writeSelColor(f, v) {
+    const [, i, alpha] = f.match(/^sc-(\d+)(-alpha)?$/) ?? [];
+    const g = scGroups[+i];
+    const next = alpha ? { a: clamp01(v / 100) } : typedColor(v);
+    if (!g || !next) return;
+    const c = { rgb: next.rgb ?? g.rgb, a: next.a ?? g.a };
+    const value = colorValue(c);
+    batch(() => {
+      for (const [el, prop] of g.members) {
+        if (!el.isConnected) continue;
+        prepare(el);
+        setStyle(el, prop === "border-color" ? BORDER_SIDES("color") : [prop], value);
+      }
+    });
+    Object.assign(g, c, { hex: colorParts(value).hex });
   }
 
   const spaceField = (props) => ({
     read: () => `${Math.round(px(getComputedStyle(selected), props[0]) * 10) / 10}`,
-    step: (dir, e) => setSpace(selected, props, stepValue(px(getComputedStyle(selected), props[0]), dir, e)),
+    step: (dir, e) => setSpace(selected, props, stepNear(px(getComputedStyle(selected), props[0]), dir, e, baseOf(selected, props[0]))),
     apply: (raw, all) => {
       const v = parseFloat(raw);
-      if (!Number.isNaN(v)) setSpace(selected, all ? sidesOf(props[0]) : props, snap(v));
+      if (!Number.isNaN(v)) setSpace(selected, all ? sidesOf(props[0]) : props, snapNear(v, false, baseOf(selected, props[0])));
     },
   });
 
@@ -1604,7 +2124,7 @@
     if (drag?.kind !== "space" || !selected) return;
     const delta = drag.dir[0] * (e.clientX - drag.x) + drag.dir[1] * (e.clientY - drag.y);
     const props = drag.props.length > 1 ? drag.props : dragProps(drag.props[0], e);
-    setSpace(selected, props, snap(drag.start + delta, e.metaKey || e.ctrlKey)); // ⌘ ignores the grid, like Figma's snapping
+    setSpace(selected, props, snapNear(drag.start + delta, e.metaKey || e.ctrlKey, baseOf(selected, props[0]))); // ⌘ ignores the grid, like Figma's snapping
   });
   spaceLayer.addEventListener("pointerleave", () => (hoverBand = null));
   const endSpaceDrag = () => {
@@ -2089,6 +2609,57 @@
   layers.innerHTML = `<div class="lh">Layers</div><div class="lt" role="tree" aria-label="Layers"></div>`;
   root.append(layers);
   const layerTree = layers.querySelector(".lt");
+
+  /* Drag the panel by its header, like the bar; double-click the header to put it back top left. */
+  const layersHead = layers.querySelector(".lh");
+  let layersAt = null; // { x, y }: its top-left corner once dragged
+  try {
+    layersAt = JSON.parse(localStorage.getItem("ptk-layers-pos") || "null");
+  } catch {}
+  function placeLayers() {
+    if (!layersAt) return void (layers.style.left = layers.style.top = "");
+    const w = layers.offsetWidth;
+    const h = layersHead.offsetHeight;
+    layers.style.left = `${Math.max(8, Math.min(layersAt.x, innerWidth - dockWidth() - w - 8))}px`;
+    layers.style.top = `${Math.max(8, Math.min(layersAt.y, innerHeight - h - 8))}px`; // the header always stays reachable
+  }
+  const rememberLayers = () => {
+    try {
+      if (layersAt) localStorage.setItem("ptk-layers-pos", JSON.stringify(layersAt));
+      else localStorage.removeItem("ptk-layers-pos");
+    } catch {}
+  };
+  layersHead.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const b = layers.getBoundingClientRect();
+    const start = { x: e.clientX, y: e.clientY, left: b.left, top: b.top };
+    layers.setAttribute("data-dragging", "");
+    const move = (ev) => {
+      layersAt = { x: start.left + ev.clientX - start.x, y: start.top + ev.clientY - start.y };
+      placeLayers();
+    };
+    const up = () => {
+      removeEventListener("pointermove", move, true);
+      removeEventListener("pointerup", up, true);
+      removeEventListener("pointercancel", up, true);
+      layers.removeAttribute("data-dragging");
+      if (layersAt) {
+        const r = layers.getBoundingClientRect(); // keep what was dropped, clamped to this window
+        layersAt = { x: r.left, y: r.top };
+      }
+      rememberLayers();
+    };
+    addEventListener("pointermove", move, true);
+    addEventListener("pointerup", up, true);
+    addEventListener("pointercancel", up, true);
+  });
+  layersHead.addEventListener("dblclick", () => {
+    layersAt = null;
+    rememberLayers();
+    placeLayers();
+  });
+  addEventListener("resize", () => placeLayers());
   let expanded = new WeakSet();
   let layerAnchor = null; // where a ⇧-click range starts
   const rowEl = new Map(); // row -> element
@@ -2210,6 +2781,7 @@
     const show = tool === "move" && !moveAbsolute && !!selected?.isConnected;
     layers.style.display = show ? "flex" : "none";
     if (!show) return void (layersFor = null);
+    placeLayers();
     const key = selectedAll();
     if (!layersFor || layersFor.length !== key.length || layersFor.some((el, i) => el !== key[i])) {
       layersFor = key;
@@ -2661,6 +3233,10 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
   /* Every field names the props it drives; "radius" and "gap" resolve per element. Type a value, step
      with ↑ ↓ (⇧ 10, ⌥/⌘ 1px), or drag the field's label to scrub, like Figma. */
   const TYPE_FIELDS = new Set(["font-family", "font-weight", "font-size", "line-height", "letter-spacing", "text-align", "align-content"]);
+  /* Plain numbers, off the 2px grid: percentages, degrees and sizes. */
+  const NUM_FIELDS = new Set(["x", "y", "opacity", "rotate", "width", "height", "fill-alpha", "border-alpha"]);
+  const isNum = (f) => NUM_FIELDS.has(f) || /^sc-\d+-alpha$/.test(f);
+  const freeField = (f) => TYPE_FIELDS.has(f) || isNum(f);
   const firstFamily = (stack) => stack.split(",")[0].replace(/["']/g, "").trim();
   const fieldProps = (f) => {
     if (f === "radius") return null;
@@ -2685,12 +3261,30 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       if (f === "align-content") return { normal: "start", "flex-start": "start", "flex-end": "end" }[cs.alignContent] ?? cs.alignContent;
       return cs.getPropertyValue(f);
     }
-    if (f === "fill") return hexOf(isTextLayer(selected) ? getComputedStyle(selected).color : getComputedStyle(selected).backgroundColor);
-    if (f === "border-color") {
-      const cs = getComputedStyle(selected);
-      return cs.borderTopStyle === "none" || !px(cs, "border-top-width") ? "none" : hexOf(cs.borderTopColor);
-    }
     const cs = getComputedStyle(selected);
+    if (f === "x" || f === "y") {
+      const p = selected.parentElement;
+      if (!p) return "0";
+      const r = selected.getBoundingClientRect();
+      const pr = p.getBoundingClientRect();
+      return `${Math.round(f === "x" ? r.left - pr.left : r.top - pr.top)}`;
+    }
+    if (f === "rotate") return `${rotOf(selected)}°`;
+    if (f === "opacity") return `${Math.round(parseFloat(cs.opacity) * 100)}%`;
+    if (f === "width" || f === "height") return `${Math.round(sizeOf(selected, f) * 10) / 10}`;
+    const color = f.match(/^(fill|border)(-color)?(-alpha)?$/);
+    if (color && f !== "border") {
+      const which = color[1] === "fill" ? "fill" : "border-color";
+      if (which === "border-color" && (cs.borderTopStyle === "none" || !px(cs, "border-top-width"))) return "";
+      const c = colorParts(cs.getPropertyValue(colorProp(selected, which)));
+      return color[3] ? `${Math.round(c.a * 100)}` : c.hex.slice(1).toUpperCase();
+    }
+    const sc = f.match(/^sc-(\d+)(-alpha)?$/);
+    if (sc) {
+      const g = scGroups[+sc[1]];
+      return !g ? "" : sc[2] ? `${Math.round(g.a * 100)}` : g.hex.slice(1).toUpperCase();
+    }
+    if (f === "gap" && /flex/.test(cs.display) && /space-between/.test(cs.justifyContent)) return "Auto";
     const values = fieldProps(f).map((prop) => Math.round(px(cs, prop) * 10) / 10);
     return values.every((v) => v === values[0]) ? `${values[0] ?? ""}` : "Mixed";
   }
@@ -2713,32 +3307,88 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       if (value !== null) for (const el of selectedAll()) setStyle(el, [f], value);
       return;
     }
-    for (const el of selectedAll()) {
-      if (f === "fill" || f === "border-color") setColor(el, f, String(v));
-      else if (f === "border") setBorderWidth(el, v);
-      else if (f === "radius") setRadius(el, v);
-      else setSpace(el, fieldProps(f).length ? fieldProps(f) : [], v);
-    }
+    if (/^sc-/.test(f)) return writeSelColor(f, v);
+    const props = f === "gap" ? fieldProps(f) : null;
+    batch(() => {
+      for (const el of selectedAll()) {
+        if (f === "fill" || f === "border-color") {
+          const c = typedColor(v);
+          if (c) writeColor(el, f, c);
+        } else if (f === "fill-alpha" || f === "border-alpha") writeColor(el, f === "fill-alpha" ? "fill" : "border-color", { a: clamp01(v / 100) });
+        else if (f === "border") setBorderWidth(el, v);
+        else if (f === "radius") setRadius(el, v);
+        else if (f === "opacity") setStyle(el, ["opacity"], `${clamp01(v / 100)}`);
+        else if (f === "rotate") setRotate(el, v);
+        else if (f === "x" || f === "y") /absolute|fixed/.test(getComputedStyle(el).position) && el.parentElement && setXY(el, f, v);
+        else if (f === "width" || f === "height") setSize(el, f, "fixed", Math.max(0, v));
+        else if (f === "flow") setFlow(el, v);
+        else if (f === "gap") {
+          if (/space-between/.test(getComputedStyle(el).justifyContent)) setGapMode(el, "fixed"); // a number means a fixed gap
+          setSpace(el, props, v);
+        } else setSpace(el, fieldProps(f).length ? fieldProps(f) : [], v);
+      }
+    });
   }
 
+  function act(a, v) {
+    batch(() => {
+      for (const el of selectedAll()) {
+        const cs = getComputedStyle(el);
+        if (a === "align-x" || a === "align-y") setSelfAlign(el, a.slice(-1), +v);
+        else if (a === "absolute") setAbsolute(el, !/absolute|fixed/.test(cs.position));
+        else if (a === "rotate90") setRotate(el, rotOf(el) + 90);
+        else if (a === "flip-x" || a === "flip-y") flip(el, a.slice(-1));
+        else if (a === "autolayout") setFlow(el, /flex|grid/.test(cs.display) ? "free" : "column");
+        else if (a === "wrap") setStyle(el, ["flex-wrap"], cs.flexWrap === "wrap" ? "nowrap" : "wrap");
+        else if (a === "visible") setStyle(el, ["visibility"], cs.visibility === "hidden" ? "visible" : "hidden");
+        else if (a === "add-fill") writeColor(el, "fill", { rgb: [255, 255, 255], a: 1 }); // Figma's default frame fill
+        else if (a === "remove-fill") writeColor(el, "fill", { a: 0 });
+        else if (a === "add-stroke") {
+          setBorderWidth(el, 1);
+          writeColor(el, "border-color", { rgb: [0, 0, 0], a: 1 });
+        } else if (a === "remove-stroke") {
+          /* A border the toolkit added just goes (its width edit started from CSS's 3px default, not 0). */
+          const added = shownOf(el, "border-top-style") === "none";
+          if (!added) setBorderWidth(el, 0);
+          [...(added ? BORDER_SIDES("width") : []), ...BORDER_SIDES("style"), ...BORDER_SIDES("color")].forEach((prop) => unsetStyle(el, prop));
+        } else if (a === "add-effect") setStyle(el, ["box-shadow"], [...shadowList(cs.boxShadow), FIGMA_SHADOW].join(", "));
+        else if (a === "remove-effect") {
+          const list = shadowList(cs.boxShadow).filter((_, i) => i !== +v);
+          setStyle(el, ["box-shadow"], list.length ? list.join(", ") : "none");
+        }
+      }
+    });
+  }
+
+  const fieldBase = (f) => baseOf(selected, f === "radius" ? "radius" : fieldProps(f)[0]);
   const fieldNow = (f) =>
-    f === "radius" ? currentRadius(selected) : f === "letter-spacing" ? parseFloat(readField(f)) || 0 : f === "line-height" && readField(f) === "Auto" ? Math.round(px(getComputedStyle(selected), "font-size") * 1.2) : px(getComputedStyle(selected), fieldProps(f)[0]);
+    isNum(f) ? parseFloat(readField(f)) || 0 : f === "radius" ? currentRadius(selected) : f === "letter-spacing" ? parseFloat(readField(f)) || 0 : f === "line-height" && readField(f) === "Auto" ? Math.round(px(getComputedStyle(selected), "font-size") * 1.2) : px(getComputedStyle(selected), fieldProps(f)[0]);
 
   function applyFieldInput(input) {
+    if (input.readOnly) return;
     const f = input.closest(".f").dataset.f;
     const raw = input.value.trim().toLowerCase();
     if (!selected || raw === "" || raw === "mixed") return;
-    if (f === "fill" || f === "border-color") return raw !== readField(f) && writeField(f, raw.replace(/ at \d+%$/, ""));
+    if (f === "fill" || f === "border-color" || /^sc-\d+$/.test(f)) return raw !== readField(f).toLowerCase() && writeField(f, raw);
     if (f === "radius" && (raw === "full" || raw === "f")) return writeField(f, Infinity);
+    if (isNum(f)) {
+      const v = parseFloat(raw);
+      return !Number.isNaN(v) && v !== parseFloat(readField(f)) && writeField(f, v);
+    }
     if (TYPE_FIELDS.has(f)) return raw !== String(readField(f)).toLowerCase() && writeField(f, raw); // no 2px grid for type
     const v = parseFloat(raw);
-    if (!Number.isNaN(v)) writeField(f, snap(v));
+    if (!Number.isNaN(v)) writeField(f, snapNear(v, false, fieldBase(f)));
   }
 
   let lastPanelFor = null;
   let lastPanelCount = -1;
+  let sizeFor = null; // the resizing modes below were measured for this element, at this edit
+  let sizeVer = -1;
+  let sizeModes = { width: "fixed", height: "fixed" };
+  let scFor = null;
+  let scVer = -1;
   /* Dock: while Move, Radius or Spacing has a selection, the panel sits on the right and the page makes room. */
-  const DOCK = 260;
+  const DOCK = 250;
   let docked = null; // the page's own inline margin-right while docked
   function setDock(on) {
     const html = document.documentElement;
@@ -2794,18 +3444,149 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       const comps = describe(selected).components;
       panel.querySelector(".comp").textContent = n > 1 ? `${n} selected, edits apply to all` : comps.length ? comps.map((c) => `<${c}>`).join(" in ") : "";
     }
-    panel.querySelector('[data-sec="gap"]').hidden = !gapInfo(getComputedStyle(selected));
     paintType();
+    const cs = getComputedStyle(selected);
+    const pcs = selected.parentElement ? getComputedStyle(selected.parentElement) : null;
     const text = isTextLayer(selected);
-    panel.querySelector('[data-sec="border"]').hidden = text; // text has no border option, like Figma
-    panel.querySelector('[data-sec="fill"] h4').textContent = text ? "Fill (text colour)" : "Fill";
+    const flex = /flex/.test(cs.display);
+    const grid = /grid/.test(cs.display);
+    const al = flex || grid;
+    const flow = grid ? "grid" : flex ? (cs.flexDirection.startsWith("column") ? "column" : "row") : "free";
+    /* It paints every frame: only touch what changed. */
+    const q = (sel) => panel.querySelector(sel);
+    const qa = (sel) => panel.querySelectorAll(sel);
+    const set = (el, name, v) => el.getAttribute(name) !== v && el.setAttribute(name, v);
+    const hide = (el, h) => el.hasAttribute("hidden") !== h && el.toggleAttribute("hidden", h);
+    const html = (el, v) => el.dataset.html !== v && ((el.dataset.html = v), (el.innerHTML = v));
+    const none = (sec, n) => sec.hasAttribute("data-none") !== n && sec.toggleAttribute("data-none", n);
+
+    /* Position */
+    const abs = /absolute|fixed/.test(cs.position);
+    hide(q('[data-act="absolute"]'), !pcs);
+    set(q('[data-act="absolute"]'), "aria-pressed", String(abs));
+    for (const f of ["x", "y"]) {
+      const box = q(`.f[data-f="${f}"]`);
+      const input = box.querySelector("input");
+      if (box.hasAttribute("data-ro") === abs) {
+        box.toggleAttribute("data-ro", !abs);
+        input.readOnly = !abs;
+        input.tabIndex = abs ? 0 : -1;
+        box.title = abs ? (f === "x" ? "X" : "Y") : "Turn on absolute position to place it, or use Move (V)";
+      }
+    }
+    for (const axis of ["x", "y"]) {
+      const off = String(!selfAlignProp(selected, axis));
+      qa(`[data-act="align-${axis}"]`).forEach((b) => set(b, "aria-disabled", off));
+    }
+
+    /* Auto layout */
+    const ttl = q('[data-sec="layout"] .ttl');
+    if (ttl.textContent !== (al ? "Auto layout" : "Layout")) ttl.textContent = al ? "Auto layout" : "Layout";
+    const alb = q('[data-act="autolayout"]');
+    set(alb, "aria-pressed", String(al));
+    set(alb, "aria-label", al ? "Remove auto layout" : "Add auto layout");
+    set(alb, "title", al ? "Remove auto layout" : "Add auto layout");
+    html(alb, al ? PI.layout : PI.plus);
+    hide(alb, text);
+    hide(q('[data-g="flow"]'), text);
+    qa('[data-f="flow"] button').forEach((b) => set(b, "aria-checked", String(b.dataset.v === flow)));
+    set(q('[data-act="wrap"]'), "aria-disabled", String(flow !== "row"));
+    set(q('[data-act="wrap"]'), "aria-pressed", String(flow === "row" && cs.flexWrap === "wrap"));
+    hide(q('[data-g="align"]'), !al || text);
+    if (al && !text) {
+      const [ax, ay] = alignNow(cs);
+      const col = flow !== "row";
+      qa(".agrid button").forEach((b) => {
+        set(b, "aria-checked", String(+b.dataset.x === ax && +b.dataset.y === ay));
+        html(b, alignBars(col, col ? +b.dataset.x : +b.dataset.y));
+      });
+      const gi = !!gapInfo(cs);
+      qa('[data-g="gap"]').forEach((g) => hide(g, !gi));
+      html(q('[data-f="gap"] .k'), flow === "row" ? PI.gapH : PI.gapV);
+      const gm = q("[data-gapmode]");
+      hide(gm.parentElement, !flex);
+      const mode = /space-between/.test(cs.justifyContent) ? "auto" : "fixed";
+      if (root.activeElement !== gm && gm.value !== mode) gm.value = mode;
+    }
+    hide(q('[data-g="pad"]'), text && SIDES.every((side) => !px(cs, `padding-${side}`)));
+    hide(q('[data-g="clip"]'), text);
+    const clip = q('[data-act="clip"]');
+    if (clip.checked !== (cs.overflowX !== "visible")) clip.checked = cs.overflowX !== "visible";
+    /* Resizing: measured once per selection and edit (Hug needs a layout of its own). */
+    if (sizeFor !== selected || sizeVer !== editVersion) {
+      sizeFor = selected;
+      sizeVer = editVersion;
+      sizeModes = { width: sizeMode(selected, "width"), height: sizeMode(selected, "height") };
+    }
+    for (const f of ["width", "height"]) {
+      const box = q(`[data-mode="${f}"]`);
+      const m = sizeModes[f];
+      if (root.activeElement !== box && box.value !== m) box.value = m;
+      const mt = box.parentElement.querySelector(".mt");
+      const label = { fill: "Fill", hug: "Hug", fixed: "" }[m];
+      if (mt.textContent !== label) mt.textContent = label;
+      hide(box.parentElement.querySelector("svg"), m !== "fixed");
+    }
+
+    /* Appearance */
+    const vis = q('[data-act="visible"]');
+    const off = cs.visibility === "hidden";
+    html(vis, off ? PI.eyeOff : PI.eye);
+    set(vis, "aria-label", off ? "Show" : "Hide");
+    set(vis, "title", off ? "Show" : "Hide");
+
+    /* Fill and stroke: an empty section is just its title and a +, like Figma. */
+    const hasFill = text || colorParts(cs.getPropertyValue(colorProp(selected, "fill"))).a > 0;
+    const fillSec = q('[data-sec="fill"]');
+    none(fillSec, !hasFill);
+    fillSec.querySelectorAll("[data-has]").forEach((r) => hide(r, !hasFill));
+    hide(q('[data-act="add-fill"]'), hasFill);
+    hide(q('[data-act="remove-fill"]'), text);
+    const strokeSec = q('[data-sec="border"]');
+    hide(strokeSec, text); // text has no stroke option here
+    const hasStroke = cs.borderTopStyle !== "none" && px(cs, "border-top-width") > 0;
+    none(strokeSec, !hasStroke);
+    strokeSec.querySelectorAll("[data-has]").forEach((r) => hide(r, !hasStroke));
+    hide(q('[data-act="add-stroke"]'), hasStroke);
+
+    /* Effects: box-shadow, one row per shadow. */
+    const fx = shadowList(cs.boxShadow);
+    none(q('[data-sec="effects"]'), !fx.length);
+    html(
+      q(".elist"),
+      fx
+        .map((sh, i) => {
+          const nums = (sh.match(/-?[\d.]+px/g) ?? []).map((n) => parseFloat(n)).join(" ");
+          return `<div class="crow erow"><div class="f" title="${esc(sh)}"><span class="ic">${PI.shadow}</span><span class="nm">${/inset/.test(sh) ? "Inner shadow" : "Drop shadow"}</span><span class="val">${esc(nums)}</span></div><span></span><button class="ib" type="button" data-act="remove-effect" data-v="${i}" aria-label="Remove effect" title="Remove effect">${PI.minus}</button></div>`;
+        })
+        .join(""),
+    );
+
+    /* Selection colors: kept still while one of them is being edited, so the rows do not jump. */
+    const colorSec = q('[data-sec="colors"]');
+    const busy = cp.for?.startsWith("sc-") || colorSec.contains(root.activeElement);
+    if ((scFor !== selected || scVer !== editVersion) && !busy) {
+      scFor = selected;
+      scVer = editVersion;
+      scGroups = selected.children.length ? collectColors() : [];
+    }
+    hide(colorSec, !scGroups.length);
+    html(
+      q(".sclist"),
+      scGroups
+        .map(
+          (_, i) =>
+            `<div class="crow"><div class="cf"><div class="f c" data-f="sc-${i}" title="Colour ${i + 1}"><button class="sw" type="button" aria-label="Open colour picker" aria-expanded="false"></button><input class="hex" spellcheck="false" aria-label="Colour ${i + 1}"></div><label class="f a" data-f="sc-${i}-alpha" title="Opacity"><input inputmode="decimal" aria-label="Colour ${i + 1} opacity"><span class="pct">%</span></label></div></div>`,
+        )
+        .join(""),
+    );
+
     const focused = root.activeElement;
     for (const f of panel.querySelectorAll(".f.c")) {
-      const cs = getComputedStyle(selected);
-      const color = f.dataset.f === "fill" ? (isTextLayer(selected) ? cs.color : cs.backgroundColor) : readField("border-color") === "none" ? "transparent" : cs.borderTopColor;
+      const sc = f.dataset.f.match(/^sc-(\d+)$/);
+      const color = sc ? colorValue(scGroups[+sc[1]] ?? { rgb: [0, 0, 0], a: 0 }) : cs.getPropertyValue(colorProp(selected, f.dataset.f));
       f.querySelector(".sw").style.setProperty("--sw", color);
-      const hex = hexOf(color);
-      if (cp.for === f.dataset.f) syncPicker(hex);
+      if (cp.for === f.dataset.f) syncPicker(colorParts(color).hex);
     }
     for (const input of panel.querySelectorAll(".f input")) {
       if (input === focused) continue;
@@ -2845,14 +3626,14 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     const w = readField("font-weight");
     if (![...wSel.options].some((o) => o.value === w)) wSel.insertAdjacentHTML("beforeend", `<option value="${esc(w)}">${esc(w)}</option>`);
     if (root.activeElement !== wSel) wSel.value = w;
-    for (const seg of sec.querySelectorAll(".seg")) {
+    for (const seg of sec.querySelectorAll(".tabs")) {
       const v = readField(seg.dataset.f);
       seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.v === v)));
     }
   }
 
   function setIndependent(on) {
-    panel.querySelector(".indep").setAttribute("aria-pressed", String(on));
+    panel.querySelectorAll(".indep").forEach((b) => b.setAttribute("aria-pressed", String(on)));
     panel.querySelector("[data-four]").hidden = !on;
     panel.querySelector("[data-pair]").hidden = on;
   }
@@ -2866,7 +3647,7 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     const input = e.target.closest?.("input");
     if (!input) return;
     e.stopPropagation(); // the page and the toolkit's own shortcuts stay quiet while typing
-    if (!input.closest(".f")) return; // the colour picker's hex field handles its own keys
+    if (!input.closest(".f") || input.readOnly) return; // the colour picker's hex field handles its own keys
     const f = input.closest(".f").dataset.f;
     if (e.key === "Enter") {
       e.preventDefault();
@@ -2879,8 +3660,8 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && selected && !input.closest(".c")) {
       e.preventDefault();
       const dir = e.key === "ArrowUp" ? 1 : -1;
-      if (TYPE_FIELDS.has(f)) writeField(f, Math.round((fieldNow(f) + dir * (f === "letter-spacing" ? (e.shiftKey ? 1 : 0.1) : e.shiftKey ? 10 : 1)) * 10) / 10);
-      else writeField(f, stepValue(fieldNow(f), dir, e));
+      if (freeField(f)) writeField(f, Math.round((fieldNow(f) + dir * (f === "letter-spacing" ? (e.shiftKey ? 1 : 0.1) : e.shiftKey ? 10 : 1)) * 10) / 10);
+      else writeField(f, stepNear(fieldNow(f), dir, e, fieldBase(f)));
       input.value = readField(f);
       input.select();
     }
@@ -2891,12 +3672,29 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
   });
   panel.addEventListener("focusin", (e) => e.target.select?.());
   panel.addEventListener("change", (e) => {
-    const sel = e.target.closest(".f.sel select");
-    if (sel && selected) writeField(sel.closest(".f").dataset.f, sel.value);
+    const t = e.target;
+    if (!selected) return;
+    if (t.closest(".f.sel select")) writeField(t.closest(".f").dataset.f, t.value);
+    else if (t.matches("[data-mode]")) batch(() => selectedAll().forEach((el) => setSize(el, t.dataset.mode, t.value)));
+    else if (t.matches("[data-gapmode]")) batch(() => selectedAll().forEach((el) => setGapMode(el, t.value)));
+    else if (t.matches('[data-act="clip"]')) {
+      batch(() =>
+        selectedAll().forEach((el) => {
+          const base = shownOf(el, "overflow");
+          setStyle(el, ["overflow"], t.checked ? (base !== "visible" ? base : "hidden") : "visible");
+        }),
+      );
+    }
   });
   panel.addEventListener("click", (e) => {
-    const b = e.target.closest(".seg button");
-    if (b && selected) writeField(b.closest(".seg").dataset.f, b.dataset.v);
+    if (!selected) return;
+    const tab = e.target.closest(".tabs[data-f] button");
+    /* The chosen tab may stand for an equivalent value (start shows as Left): choosing it again changes nothing. */
+    if (tab) return tab.getAttribute("aria-checked") !== "true" && writeField(tab.closest(".tabs").dataset.f, tab.dataset.v);
+    const cell = e.target.closest(".agrid button");
+    if (cell) return batch(() => selectedAll().forEach((el) => setAlign(el, +cell.dataset.x, +cell.dataset.y)));
+    const b = e.target.closest("button[data-act]");
+    if (b) act(b.dataset.act, b.dataset.v);
   });
 
   /* ---------- colour picker (PERMANENT ui's ColorPicker, in the panel) ---------- */
@@ -2971,8 +3769,9 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     cp.for = f;
     cp.hex = "";
     field.querySelector(".sw").setAttribute("aria-expanded", "true");
-    field.parentElement.after(cpEl);
-    syncPicker(hexToHsv(readField(f)) ? readField(f) : "#4c9df5");
+    field.closest(".crow").after(cpEl);
+    const hex = readField(f);
+    syncPicker(hexToHsv(hex) ? `#${hex.toLowerCase()}` : "#4c9df5");
   }
   function closePicker() {
     if (!cp.for) return;
@@ -3053,7 +3852,7 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
   /* Scrub: drag a field's label sideways. 1px of mouse is 1px of value, snapped to the grid unless ⌥/⌘. */
   panel.addEventListener("pointerdown", (e) => {
     const k = e.target.closest(".k");
-    if (!k || !selected) return;
+    if (!k || !selected || k.closest("[data-ro]")) return;
     e.preventDefault();
     capture(k, e);
     drag = { kind: "scrub", f: k.closest(".f").dataset.f, start: fieldNow(k.closest(".f").dataset.f), x: e.clientX };
@@ -3061,8 +3860,9 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
   panel.addEventListener("pointermove", (e) => {
     if (drag?.kind !== "scrub" || !selected) return;
     const delta = e.clientX - drag.x;
-    if (TYPE_FIELDS.has(drag.f)) writeField(drag.f, Math.round((drag.start + delta * (drag.f === "letter-spacing" ? 0.1 : 0.5)) * 10) / 10);
-    else writeField(drag.f, snap(drag.start + delta, e.altKey || e.metaKey || e.ctrlKey));
+    const rate = drag.f === "letter-spacing" ? 0.1 : /^(width|height|rotate)$/.test(drag.f) ? 1 : 0.5;
+    if (freeField(drag.f)) writeField(drag.f, Math.round((drag.start + delta * rate) * 10) / 10);
+    else writeField(drag.f, snapNear(drag.start + delta, e.altKey || e.metaKey || e.ctrlKey, fieldBase(drag.f)));
   });
   const endScrub = () => drag?.kind === "scrub" && (drag = null);
   panel.addEventListener("pointerup", endScrub);
@@ -3549,7 +4349,7 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     }
     if (styleEdits.size) {
       const change = (prop, pe) => {
-        const [from, to] = [shownStyle(prop, pe.before), shownStyle(prop, pe.after)];
+        const [from, to] = [shownStyle(prop, pe.before), pe.label ?? shownStyle(prop, pe.after)];
         return from === to ? `${prop}: ${to}` : `${prop}: ${from} → ${to}`; // set on purpose, same as it computed
       };
       const typeList = [];
@@ -3576,7 +4376,7 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
         const by = setBy(el, [...e.props.keys()].filter((p) => !TYPE_PROPS.includes(p)).concat("background", "border"));
         return `${++i}. <${e.tag}> ${where(e)}\n${lines.map((l) => `   ${l}`).join("\n")}${by ? `\n${by}` : ""}`;
       });
-      if (list.length) sections.push(`Fill and border\n\n${list.join("\n\n")}`);
+      if (list.length) sections.push(`Layout and appearance\n\n${list.join("\n\n")}`);
       how.push(SHARED_NOTE, tokenNote());
     }
     const flows = [...moveEdits.entries()].filter(([, e]) => e.mode === "flow" && e.to);
@@ -3815,6 +4615,18 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
   }, true);
 
   window.addEventListener("keydown", (e) => {
+    /* ⌥H hides the whole toolkit (a clean look at the page, a screenshot) and brings it back. Edits stay;
+       the page's own fields keep typing ⌥H. */
+    if (e.altKey && !e.metaKey && !e.ctrlKey && e.code === "KeyH") {
+      const t = e.composedPath()[0];
+      const typing = t && t !== host && !host.contains(t) && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+      if (!typing || hiddenAll) {
+        e.preventDefault();
+        e.stopPropagation();
+        return setHiddenAll(!hiddenAll);
+      }
+    }
+    if (hiddenAll) return;
     if (composing && e.composedPath().includes(note)) {
       e.stopPropagation(); // typing a note never triggers tools or the page's shortcuts
       if (e.key === "Escape") {
@@ -3916,7 +4728,7 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       }
       if (tool === "radius" && /^Arrow/.test(e.key)) {
         take();
-        setRadius(selected, stepValue(currentRadius(selected), e.key === "ArrowUp" || e.key === "ArrowRight" ? 1 : -1, e));
+        setRadius(selected, stepNear(currentRadius(selected), e.key === "ArrowUp" || e.key === "ArrowRight" ? 1 : -1, e, baseOf(selected, "radius")));
         return;
       }
     }
