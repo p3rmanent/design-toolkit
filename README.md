@@ -88,8 +88,6 @@ Delete apply to everything selected. `⇥` / `⇧⇥` step to the next / previou
 **Layers** (top left, while Select has a selection) works like Figma's: click selects, `⌘`-click adds or removes, `⇧`-click selects a range, `⌥`-click an arrow opens or closes the whole branch, `⌥L` collapses everything but the path to the selection. Drag its header to move it anywhere, double-click the header to put it back. Text layers are named by their text; double-click one to rename it and the page text changes with it (it lands in the prompt as a text edit). Drag rows to reorder or re-parent: a line shows before or after a row, the middle of a container's row drops inside it. It is a real layout move, so it lands in the prompt like a Select drag. Icons show column, row and grid layouts. The selection stays when you switch tools, and the side panel shows while
 something is selected.
 
-**Canvas** (`test.html?canvas`, the Canvas button on the site): every test screen as a frame on a canvas, like a Figma file. Scroll pans, `⌘`/Ctrl + scroll (or pinch) zooms at the pointer, space or middle-drag pans, `⇧1` fits. Drag a frame by its name to move it; drag its right edge, bottom edge or corner to resize (double-click a handle to reset). Positions and sizes are remembered in your browser.
-
 **Options.** Tools with a corner wedge (Move, Copy prompt) open their options from the wedge, a right-click, or a long press.
 
 **Move the toolbar** by dragging it from anywhere, buttons included (a press that barely moves is still a click); double-click its frame to put it back. **×** collapses it to a **+**; click it (or press a tool key) to open it again. Both are remembered per browser.
