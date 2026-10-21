@@ -1,4 +1,4 @@
-/* design-toolkit (github.com/davidexo/design-toolkit). Load it on any localhost page by script tag or bookmarklet.
+/* design-toolkit (github.com/p3rmanent/design-toolkit). Load it on any localhost page by script tag or bookmarklet.
 
    Tweak the design right on the page, then ⌘↵ (or Copy prompt) puts a ready-made prompt on the clipboard
    for Claude Code to make the same changes in the source.

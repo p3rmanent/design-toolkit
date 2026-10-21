@@ -7,7 +7,7 @@ make the same changes in the source.
 One file, [toolkit.js](toolkit.js), no dependencies, no build step. It lives in a shadow root, so it
 never touches your page's styles.
 
-Live demo: https://davidexo.github.io/design-toolkit/
+Live demo: https://p3rmanent.github.io/design-toolkit/
 
 ## Install
 
@@ -35,7 +35,7 @@ import { DesignToolkit } from "design-toolkit/react";
 ```
 
 Not using React? `import "design-toolkit"` in development only. Or skip the install and add
-`<script src="https://cdn.jsdelivr.net/gh/davidexo/design-toolkit@main/toolkit.js" async></script>`
+`<script src="https://cdn.jsdelivr.net/gh/p3rmanent/design-toolkit@main/toolkit.js" async></script>`
 to your dev page.
 
 ## Tools
