@@ -3,12 +3,15 @@
    Tweak the design right on the page, then ⌘↵ (or Copy prompt) puts a ready-made prompt on the clipboard
    for Claude Code to make the same changes in the source.
 
-   T  Text     click any copy and type.
-   R  Radius   click any box, drag the corner handle, use the arrow keys or click the value to type one.
+   Figma's toolbar and keys:
+   V  Select   click to select, drag into any container to reorder or re-parent (M: Move, free placement).
+   F  Frame    draw an auto layout frame (P: a placeholder box you describe in words).
+   R  Shape    draw a rectangle (L line, O ellipse). ⇧ square, ⌥ from the centre. Drawn layers join the flow.
+   T  Text     click any copy and type, or click empty space for a new text layer.
    S  Spacing  click any element, drag its padding, margin or gap bands, or click a value to type one.
-   V  Move     drag any element anywhere; the prompt explains the move in layout terms (new container,
-               new order, neighbours, alignment, overlap) so Claude can turn it into real layout.
    C  Comment  click any element (or select some text) and leave a note in your own words.
+   ⌘D duplicate, ⌘C ⌘V copy and paste layers, ⌘⌥C ⌘⌥V properties, ⇧A wrap in auto layout, ⌘⌥G frame,
+   ⌘⇧G ungroup, ⌘] ⌘[ reorder, 0-9 opacity, ⇧H ⇧V flip, ⌘⇧H hide.
 
    ⌥H hides the whole toolkit and brings it back.
 
@@ -81,8 +84,18 @@
   const styleEdits = new Map(); // element -> { props: Map(prop -> { before, shown, after, inline }), tag, path, components }: fill and border
   const originalStyle = new WeakMap();
   const removeEdits = new Map(); // element -> { display, twins, tag, path, components }: deleted with the Move tool
-  const addEdits = new Map(); // drawn placeholder -> { container, containerInline }: the Add tool's boxes
-  const count = () => textEdits.size + radiusEdits.size + spaceEdits.size + styleEdits.size + moveEdits.size + removeEdits.size + addEdits.size + comments.length;
+  /* Every element the toolkit made (drawn frames, shapes and text, placeholders, duplicates, wrappers) and
+     each of its descendants: node -> { kind, note }. The prompt describes these as new markup, so edits made
+     to them (their fill, size, text) are part of that markup rather than lines of their own. */
+  const addEdits = new Map();
+  let created = new WeakSet(); // the same nodes; it outlives a copy until the next one, see clearEdits
+  const dupOf = new WeakMap(); // a duplicated node -> the existing element it copies
+  const origPos = new Map(); // an existing element the toolkit re-parented (wrapped) -> { parent, next } as it first was
+  const isNew = (el) => !!el && created.has(el);
+  const topAdded = () => [...addEdits.keys()].filter((el) => el.isConnected && !isNew(el.parentElement));
+  const own = (map) => [...map].filter(([el]) => !isNew(el)); // edits of existing elements only
+  const count = () =>
+    own(textEdits).length + own(radiusEdits).length + own(spaceEdits).length + own(styleEdits).length + moveEdits.size + removeEdits.size + topAdded().length + comments.length;
   const boxTool = () => tool === "radius" || tool === "spacing" || tool === "move" || tool === "comment";
 
   /* ---------- page styles (attributes only, so React keeps owning the DOM) ---------- */
@@ -94,18 +107,22 @@
     html[data-ptk-tool="spacing"] body *:not([data-ptk-host]),
     html[data-ptk-tool="move"] body *:not([data-ptk-host]) { cursor: default !important; }
     html[data-ptk-tool="comment"] body *:not([data-ptk-host]),
-    html[data-ptk-tool="add"] body *:not([data-ptk-host]) { cursor: crosshair !important; }
-    /* Boxes drawn with Add: striped placeholders, like a wireframe. */
-    [data-ptk-added] { box-sizing: border-box; outline: 1px dashed rgba(10, 132, 255, .9); outline-offset: -1px;
+    html[data-ptk-tool="add"] body *:not([data-ptk-host]),
+    html[data-ptk-tool="frame"] body *:not([data-ptk-host]),
+    html[data-ptk-tool="rect"] body *:not([data-ptk-host]),
+    html[data-ptk-tool="ellipse"] body *:not([data-ptk-host]),
+    html[data-ptk-tool="line"] body *:not([data-ptk-host]) { cursor: crosshair !important; }
+    /* Placeholders: striped boxes, like a wireframe. */
+    [data-ptk-added="box"] { box-sizing: border-box; outline: 1px dashed rgba(10, 132, 255, .9); outline-offset: -1px;
       background: repeating-linear-gradient(45deg, rgba(10, 132, 255, .22) 0 1.5px, rgba(10, 132, 255, .05) 1.5px 8px);
       display: grid; place-items: center; overflow: hidden; }
     /* Its description: the same pill as the toolkit's value labels. Click it to write what goes here. */
-    [data-ptk-added] > [data-ptk-note] { max-width: calc(100% - 12px); padding: 4px 8px; border-radius: 6px; background: #3f9a52; color: #fff;
+    [data-ptk-added="box"] > [data-ptk-note] { max-width: calc(100% - 12px); padding: 4px 8px; border-radius: 6px; background: #3f9a52; color: #fff;
       border: 1px solid rgba(255, 255, 255, .35);
       font: 500 12px/1.3 ui-sans-serif, system-ui, -apple-system, sans-serif; text-align: center; cursor: text !important; outline: none;
       overflow-wrap: anywhere; box-shadow: 0 1px 4px rgba(0, 0, 0, .25); }
-    [data-ptk-added] > [data-ptk-note]:empty::before { content: "Desc"; opacity: .85; }
-    [data-ptk-added] > [data-ptk-note]:focus { box-shadow: 0 0 0 2px #fff, 0 1px 4px rgba(0, 0, 0, .25); }
+    [data-ptk-added="box"] > [data-ptk-note]:empty::before { content: "Desc"; opacity: .85; }
+    [data-ptk-added="box"] > [data-ptk-note]:focus { box-shadow: 0 0 0 2px #fff, 0 1px 4px rgba(0, 0, 0, .25); }
     html[data-ptk-tool="comment"] body *:not([data-ptk-host])::selection { background: rgba(255, 214, 10, .45); }
     [data-ptk-editing] { outline: 1.5px solid ${BLUE} !important; outline-offset: 3px; caret-color: ${BLUE}; }
     [data-ptk-edited]:not([data-ptk-editing]) { outline: 1.5px dashed ${BLUE} !important; outline-offset: 3px; }
@@ -290,12 +307,12 @@
       }
       .bar .notch:hover::after, .bar .notch[aria-expanded="true"]::after { opacity: .9; }
       .bar [data-needs-edits][hidden] { display: none; }
-      /* Add leads the bar and reads as the primary action: full strength, a little larger, accent when on. */
-      .bar .tool[data-tool="add"] { opacity: 1; color: rgb(var(--ink-rgb)); }
-      .bar .tool[data-tool="add"] > svg { width: 20px; height: 20px; }
-      .bar .tool[data-tool="add"]:hover { background: rgba(var(--ink-rgb), .1); }
-      .bar .tool[data-tool="add"][aria-pressed="true"] { color: #fff; }
-      .bar .tool[data-tool="add"][aria-pressed="true"]::before { background: ${BLUE}; }
+      /* Tool groups: the tool, then a narrow chevron for the rest of the group, like Figma's toolbar. */
+      .bar .chev { display: grid; place-items: center; width: 14px; height: var(--slot); margin-left: -2px; color: rgb(var(--ink-rgb)); opacity: .4; border-radius: 6px; transition: opacity .16s, background-color .16s; }
+      .bar .chev:hover, .bar .chev[aria-expanded="true"] { opacity: .9; background: rgba(var(--ink-rgb), .05); }
+      .bar .chev > svg { width: 11px; height: 11px; }
+      .bar .group .tool[aria-pressed="true"] { color: #fff; }
+      .bar .group .tool[aria-pressed="true"]::before { background: ${BLUE}; }
       .split { width: 1px; height: 20px; margin: 0 5px; flex: none; background: rgba(var(--ink-rgb), .12); }
       /* Copy prompt: the one action, so an icon button like the tools but filled in the accent, never dimmed once there is something to copy. */
       .bar .copy {
@@ -336,6 +353,10 @@
       .menu .mi[aria-checked="true"] svg { visibility: visible; }
       .menu .mi small { grid-column: 2; margin-top: 3px; font-size: 11px; color: rgba(var(--ink-rgb), .5); white-space: normal; line-height: 1.3; }
       .menu .mi[aria-disabled="true"] { opacity: .4; pointer-events: none; }
+      .menu .gi { grid-template-columns: 16px 1fr auto; }
+      .menu .gi svg { visibility: visible; width: 15px; height: 15px; }
+      .menu .gi[aria-checked="true"] { background: ${BLUE}; color: #fff; }
+      .menu .gi[aria-checked="true"] kbd { color: rgba(255, 255, 255, .7); }
       /* Toggle card: label and hint on the left, a switch on the right. */
       .menu .tg { display: flex; align-items: center; gap: 16px; width: 100%; padding: 10px; border-radius: var(--tool-r); transition: background-color .15s; }
       .menu .tg:hover { background: rgba(var(--ink-rgb), .07); }
@@ -846,6 +867,12 @@
     arrows: glyph("M12 1.8l3.6 3.6h-2.4v5.4h5.4V8.4l3.6 3.6-3.6 3.6v-2.4h-5.4v5.4h2.4L12 22.2l-3.6-3.6h2.4v-5.4H5.4v2.4L1.8 12l3.6-3.6v2.4h5.4V5.4H8.4z"),
     add: glyph("M12 2.5a9.5 9.5 0 1 1 0 19 9.5 9.5 0 0 1 0-19m0 5a1.25 1.25 0 0 0-1.25 1.25v2h-2a1.25 1.25 0 0 0 0 2.5h2v2a1.25 1.25 0 0 0 2.5 0v-2h2a1.25 1.25 0 0 0 0-2.5h-2v-2A1.25 1.25 0 0 0 12 7.5"),
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+    /* Figma's creation tools, stroked like its own toolbar */
+    frame: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 3v18M16 3v18M3 8h18M3 16h18"/></svg>',
+    rect: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5"/></svg>',
+    ellipse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/></svg>',
+    line: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 19 19 5"/></svg>',
+    chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>',
   };
 
 
@@ -853,37 +880,59 @@
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
   const MOD = isMac ? "⌘" : "Ctrl";
-  /* Move first, like the canvas-toolbar; its slot carries the corner wedge for move options. */
-  const TOOLS = [
-    ["add", "Add", "R"],
-    ["move", "Select", "V"],
-    ["absolute", "Move", "M"],
-    ["text", "Text", "T"],
-    ["spacing", "Spacing", "S"],
-    ["comment", "Comment", "C"],
-  ];
+  /* Figma's toolbar: Select, Frame, Shape and Text, each group with a chevron for its other tools, then the
+     toolkit's own Spacing and Comment. A group's button shows the tool last picked from it. */
+  const GROUPS = {
+    select: [["move", "Select", "V"], ["absolute", "Move", "M"]],
+    frame: [["frame", "Frame", "F"], ["add", "Placeholder", "P"]],
+    shape: [["rect", "Rectangle", "R"], ["line", "Line", "L"], ["ellipse", "Ellipse", "O"]],
+  };
+  const TOOLS = [["text", "Text", "T"], ["spacing", "Spacing", "S"], ["comment", "Comment", "C"]];
+  const DRAW_TOOLS = new Set(["frame", "add", "rect", "ellipse", "line"]);
+  const groupPick = { select: "move", frame: "frame", shape: "rect" };
+  const groupOf = (id) => Object.keys(GROUPS).find((g) => GROUPS[g].some(([t]) => t === id));
+  const toolInfo = (id) => [...Object.values(GROUPS).flat(), ...TOOLS].find(([t]) => t === id);
+  const iconOf = (id) => ICON[{ text: "type", absolute: "arrows" }[id] ?? id];
   let collapsed = false;
   let barAt = null; // { cx, cy }: the bar's centre once dragged, null for the default spot (bottom centre)
   try {
     collapsed = localStorage.getItem("ptk-collapsed") === "on";
     barAt = JSON.parse(localStorage.getItem("ptk-pos") || "null");
   } catch {}
-  let menuOpen = null; // null | "move" | "copy"
+  let menuOpen = null; // null | "copy" | "g:select" | "g:frame" | "g:shape"
 
-  const toolButton = (id, label, key) =>
-    `<button class="tool" data-tool="${id}" aria-pressed="false" aria-label="${label}" aria-keyshortcuts="${key}" data-tip="${label}" data-key="${key}">${ICON[{ text: "type", absolute: "arrows" }[id] ?? id]}</button>`;
+  const toolButton = (id, label, key, group = "") =>
+    `<button class="tool" data-tool="${id}"${group ? ` data-group="${group}"` : ""} aria-pressed="false" aria-label="${label}" aria-keyshortcuts="${key}" data-tip="${label}" data-key="${key}">${iconOf(id)}</button>`;
+  const groupSlot = (g) =>
+    `<span class="slot group">${toolButton(...GROUPS[g][0], g)}<button class="chev" data-menu="g:${g}" aria-haspopup="menu" aria-expanded="false" aria-label="More tools" data-tip="More tools">${ICON.chev}</button></span>`;
   bar.innerHTML =
-    TOOLS.map(([id, label, key]) => toolButton(id, label, key) + (id === "add" ? '<span class="split"></span>' : "")).join("") +
+    Object.keys(GROUPS).map(groupSlot).join("") +
+    toolButton(...TOOLS[0]) +
+    '<span class="split"></span>' +
+    TOOLS.slice(1).map((t) => toolButton(...t)).join("") +
     `<span class="split" data-needs-edits></span>
     <span class="slot" data-needs-edits><button class="copy" aria-disabled="true" aria-label="Copy prompt">${ICON.copy}<span class="badge" hidden></span></button><button class="notch" data-menu="copy" aria-haspopup="menu" aria-expanded="false" aria-label="Prompt options" data-tip="Prompt options"></button></span>
     <button class="tool close" aria-label="Collapse toolbar" data-tip="Collapse">${ICON.close}</button>
     <button class="expand" aria-label="Open design toolkit" data-tip="Design toolkit">${ICON.close}</button>`;
+  /* A group's button takes the look and shortcut of its picked tool. */
+  function paintGroups() {
+    bar.querySelectorAll("[data-group]").forEach((b) => {
+      const id = groupPick[b.dataset.group];
+      if (b.dataset.tool === id) return;
+      const [, label, key] = toolInfo(id);
+      Object.assign(b.dataset, { tool: id, tip: label, key });
+      b.setAttribute("aria-label", label);
+      b.setAttribute("aria-keyshortcuts", key);
+      b.innerHTML = iconOf(id);
+    });
+  }
   const copyButton = bar.querySelector(".copy");
   const badge = bar.querySelector(".badge");
 
   function render() {
     if (history.length) scheduleCheckpoint();
     const n = count();
+    paintGroups();
     bar.querySelectorAll(".tool").forEach((b) => b.setAttribute("aria-pressed", String(toolName() === b.dataset.tool)));
     bar.querySelectorAll("[data-menu]").forEach((b) => b.setAttribute("aria-expanded", String(menuOpen === b.dataset.menu)));
     copyButton.setAttribute("aria-disabled", String(n === 0));
@@ -921,7 +970,12 @@
     if (!menuOpen) return (menu.style.display = "none");
     const item = (attrs, checked, label, hint, disabled = false) =>
       `<button class="mi" ${attrs} aria-checked="${checked}" aria-disabled="${disabled}">${ICON.check}<span>${label}</span>${hint ? `<small>${hint}</small>` : ""}</button>`;
-    if (menuOpen === "move") {
+    if (menuOpen.startsWith("g:")) {
+      /* A group's tools, Figma's flyout: icon, name, shortcut; the current one is marked. */
+      menu.innerHTML = GROUPS[menuOpen.slice(2)]
+        .map(([id, label, key]) => `<button class="mi gi" role="menuitemradio" data-pick="${id}" aria-checked="${groupPick[menuOpen.slice(2)] === id}">${iconOf(id)}<span>${label}</span><kbd>${key}</kbd></button>`)
+        .join("");
+    } else if (menuOpen === "move") {
       /* One toggle card: off is Flow (the default), on is Absolute. Updated in place so the switch slides. */
       const hint = moveAbsolute ? "Place anywhere, sent with a screenshot." : "Off: drop into containers, in the layout.";
       const tg = menu.querySelector(".tg");
@@ -1004,6 +1058,10 @@
   menu.addEventListener("click", (e) => {
     const b = e.target.closest(".mi, .tg");
     if (!b) return;
+    if (b.dataset.pick) {
+      menuOpen = null;
+      return setTool(b.dataset.pick);
+    }
     const set = b.dataset.set;
     if (set === "toggle-absolute") moveAbsolute = !moveAbsolute;
     if (set === "tokens") useTokens = !useTokens;
@@ -1039,6 +1097,7 @@
   /* Select (flow) and Move (absolute) share the move engine: the button names which mode it runs in. */
   const toolName = () => (tool === "move" && moveAbsolute ? "absolute" : tool);
   function setTool(next) {
+    if (next && groupOf(next)) groupPick[groupOf(next)] = next;
     if (next === "absolute" || next === "move") {
       moveAbsolute = next === "absolute";
       next = "move";
@@ -1231,6 +1290,23 @@
     el.removeAttribute("data-ptk-editing");
     el.removeAttribute("spellcheck");
     if (editing === el) editing = null;
+    if (isNew(el)) {
+      /* New text: its words are part of the new markup. Left empty, it goes, like an empty Figma text layer. */
+      textEdits.delete(el);
+      const fresh = freshText === el;
+      if (fresh) freshText = null;
+      if (!squash(el.innerText)) {
+        if (selected === el) select(null);
+        el.remove();
+        addEdits.delete(el);
+      } else if (fresh) {
+        getSelection()?.removeAllRanges();
+        setTool("move");
+        select(el);
+      }
+      mark(el);
+      return render();
+    }
     const edit = textEdits.get(el);
     if (!edit) return;
     edit.after = el.innerText.trim();
@@ -2388,7 +2464,7 @@
 
   /* Text, controls and inline boxes hold copy, not layout: dropping onto a paragraph is not a move into it. */
   const LEAF = new Set(["P", "H1", "H2", "H3", "H4", "H5", "H6", "SPAN", "A", "BUTTON", "LABEL", "LI", "STRONG", "EM", "SMALL", "CODE", "INPUT", "TEXTAREA", "SELECT", "IMG", "SVG", "VIDEO", "CANVAS"]);
-  const isLayoutBox = (c) => !LEAF.has(c.tagName.toUpperCase()) && !c.hasAttribute("data-ptk-inflow") && !/^inline(?!-(flex|grid|block))/.test(getComputedStyle(c).display);
+  const isLayoutBox = (c) => !LEAF.has(c.tagName.toUpperCase()) && !c.hasAttribute("data-ptk-inflow") && !LEAF_KINDS.has(c.getAttribute("data-ptk-added")) && !/^inline(?!-(flex|grid|block))/.test(getComputedStyle(c).display);
 
   /* Human-readable handle for an element in the prompt: tag, readable class, a bit of its text. */
   function short(n) {
@@ -2445,54 +2521,345 @@
   };
 
   /* Delete with the Move tool: the element disappears and the page reflows as if it were gone. */
-  /* ================= Add: draw a placeholder box ================= */
+  /* ================= Create: frames, shapes, text and placeholders ================= */
 
-  /* Drag on the page to draw a striped box. It goes into the layout like auto layout, not absolutely: while
-     you draw, the same blue line as Select's drag shows the slot it will take (container and position), and
-     on release it is inserted there at the size you drew. Then Select takes over with the box selected. */
-  function startDraw(e) {
-    const box = document.createElement("div");
-    box.setAttribute("data-ptk-added", "");
-    const note = document.createElement("span");
-    note.setAttribute("data-ptk-note", "");
-    box.append(note);
-    drag = { kind: "draw", box, x: e.clientX, y: e.clientY, slot: null };
+  /* Drag on the page to draw. Like Select's drag it goes into the layout, auto layout style, not absolutely:
+     while you draw, the blue line shows the slot it will take (container and position), and on release it is
+     inserted there at the size you drew. A click makes a 100 × 100 one. ⇧ keeps it square (a circle, for the
+     ellipse), ⌥ draws from the centre. Then Select takes over with it selected, as in Figma. */
+  const LEAF_KINDS = new Set(["rect", "ellipse", "line", "box", "text"]);
+  const KIND_NAMES = { frame: "Frame", rect: "Rectangle", ellipse: "Ellipse", line: "Line", box: "Placeholder", text: "Text" };
+  /* Figma's defaults: frames are white auto layout (vertical, 10 gap), shapes are #D9D9D9, lines 1px black. */
+  const KIND_STYLE = {
+    frame: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "10px", backgroundColor: "#ffffff" },
+    rect: { backgroundColor: "#d9d9d9" },
+    ellipse: { backgroundColor: "#d9d9d9", borderRadius: "50%" },
+    line: { backgroundColor: "#000000" },
+    text: { margin: "0" },
+    box: {},
+  };
+  function makeNode(kind) {
+    const el = document.createElement(kind === "text" ? "p" : "div");
+    el.setAttribute("data-ptk-added", kind);
+    Object.assign(el.style, { boxSizing: kind === "text" ? "" : "border-box", ...KIND_STYLE[kind] });
+    if (kind === "box") {
+      const note = document.createElement("span");
+      note.setAttribute("data-ptk-note", "");
+      el.append(note);
+    }
+    if (kind === "text") el.textContent = "Text";
+    return el;
   }
+  /* The toolkit made it: it and everything inside are new, and each is tracked so undo can put it back. */
+  function register(el, kind, deep = true) {
+    for (const n of deep ? [el, ...el.querySelectorAll("*")] : [el]) {
+      if (n.hasAttribute("data-ptk-note")) continue;
+      created.add(n);
+      rememberPristine(n);
+      if (!addEdits.has(n)) addEdits.set(n, { kind: n === el ? kind : n.getAttribute("data-ptk-added") || "copy", note: "" });
+    }
+  }
+  const drawKind = () => (tool === "add" ? "box" : tool);
+
+  function startDraw(e, kind = drawKind()) {
+    drag = { kind: "draw", shape: kind, box: makeNode(kind), x: e.clientX, y: e.clientY, slot: null };
+  }
+  /* The layer goes into its slot as soon as the drag starts (the slot where you pressed), then grows in place:
+     the auto layout around it reflows live while you draw, so what you see is where it lands. */
   function drawMove(e) {
     const d = drag;
-    if (!d.box.isConnected) {
+    if (!d.placed) {
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) return;
-      if (!cloneLayer.isConnected) document.documentElement.append(cloneLayer); // first use on a fresh page
-      cloneLayer.append(d.box); // floats while drawn, like Select's dragged copy
+      d.slot = slotAt(d.x, d.y, d.box);
+      if (!d.slot) return;
+      const c = d.slot.container;
+      d.z = c.offsetWidth ? c.getBoundingClientRect().width / c.offsetWidth : 1; // a zoomed canvas: screen px back to CSS px
+      Object.assign(d.box.style, { flex: "none", outline: `1px solid ${BLUE}`, outlineOffset: "-1px" });
+      insertAt(d.box, d.slot);
+      d.placed = true;
     }
-    const [x0, x1] = [Math.min(d.x, e.clientX), Math.max(d.x, e.clientX)];
-    const [y0, y1] = [Math.min(d.y, e.clientY), Math.max(d.y, e.clientY)];
-    d.w = snap(Math.max(GRID * 4, x1 - x0));
-    d.h = snap(Math.max(GRID * 4, y1 - y0));
-    Object.assign(d.box.style, { position: "absolute", left: `${x0 + scrollX}px`, top: `${y0 + scrollY}px`, width: `${d.w}px`, height: `${d.h}px` });
-    d.slot = slotAt((x0 + x1) / 2, (y0 + y1) / 2, d.box);
+    let w = Math.abs(e.clientX - d.x);
+    let h = Math.abs(e.clientY - d.y);
+    if (e.shiftKey) w = h = Math.max(w, h); // ⇧: square, or a circle
+    if (e.altKey) [w, h] = [w * 2, h * 2]; // ⌥: from the centre, so twice the reach
+    const free = e.metaKey || e.ctrlKey;
+    const css = (v) => Math.max(GRID * 4, snap(v / d.z, free));
+    d.w = css(w);
+    d.h = css(h);
+    if (d.shape === "line") {
+      /* Lines run along the longer axis: a divider, 1px thick. */
+      if (h > w) d.w = 1;
+      else d.h = 1;
+    }
+    if (d.shape === "text") d.h = null; // text sets its own height; the drag sets its width
+    Object.assign(d.box.style, { width: `${d.w}px`, height: d.h == null ? "" : `${d.h}px` });
     paint();
   }
   function drawEnd() {
     const d = drag;
     drag = null;
-    if (!d.box.isConnected || !d.slot) {
-      d.box.remove();
-      return paint(); // a click, not a drag: nothing drawn
+    if (!d.placed) {
+      /* A click: Figma's default size where you clicked (text: as wide as it needs). */
+      d.slot = slotAt(d.x, d.y, d.box);
+      if (!d.slot) return paint();
+      const fixed = d.shape !== "text";
+      Object.assign(d.box.style, { width: fixed ? "100px" : "", height: fixed ? (d.shape === "line" ? "1px" : "100px") : "", flex: fixed ? "none" : "" });
+      insertAt(d.box, d.slot);
     }
-    /* Into the slot, in the flow, at the drawn size (flex: none so a row does not squash it). On a zoomed
-       canvas the drawn screen size is turned back into CSS px. */
-    const c = d.slot.container;
-    const z = c.offsetWidth ? c.getBoundingClientRect().width / c.offsetWidth : 1;
-    Object.assign(d.box.style, { position: "", left: "", top: "", width: `${snap(d.w / z)}px`, height: `${snap(d.h / z)}px`, flex: "none" });
-    d.slot.container.insertBefore(d.box, d.slot.next?.parentNode === d.slot.container ? d.slot.next : null);
-    rememberPristine(d.box);
-    addEdits.set(d.box, { container: d.slot.container, note: "" });
+    Object.assign(d.box.style, { outline: "", outlineOffset: "" });
+    if (!d.box.getAttribute("style")) d.box.removeAttribute("style");
+    register(d.box, d.shape);
     mark(d.box);
+    if (d.shape === "text") {
+      /* Straight into typing, the placeholder word selected so the first key replaces it. */
+      setTool("text");
+      freshText = d.box;
+      begin(d.box);
+      d.box.focus({ preventScroll: true });
+      getSelection()?.selectAllChildren(d.box);
+      return render();
+    }
     setTool("move");
     select(d.box);
     render();
-    editNote(d.box.querySelector("[data-ptk-note]")); // straight into "what goes here?"
+    if (d.shape === "box") editNote(d.box.querySelector("[data-ptk-note]")); // straight into "what goes here?"
+  }
+  let freshText = null; // text just drawn: leaving it goes back to Select with it selected, like Figma
+  const insertAt = (el, slot) => slot.container.insertBefore(el, slot.next?.parentNode === slot.container ? slot.next : null);
+
+  /* ================= Structure: duplicate, wrap in auto layout, ungroup, copy and paste ================= */
+
+  let structVersion = 0; // bumps on every change to the page's structure, so undo sees it as a step
+  let clip = []; // ⌘C: elements to paste
+  const visible = (el) => el?.isConnected && el !== document.body && el !== document.documentElement && el.getClientRects().length > 0;
+  const inDomOrder = (els) => [...els].sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+  /* Only the outermost of a selection: a child selected with its parent travels with the parent. */
+  const outermost = (els) => els.filter((el) => !els.some((o) => o !== el && o.contains(el)));
+
+  /* A deep copy that is new: the toolkit's own markers stripped, each node remembering what it copies. */
+  function cloneNew(el) {
+    const copy = el.cloneNode(true);
+    const from = [el, ...el.querySelectorAll("*")];
+    const to = [copy, ...copy.querySelectorAll("*")];
+    to.forEach((c, k) => {
+      for (const a of ["data-ptk-edited", "data-ptk-editing", "contenteditable", "spellcheck", "id"]) c.removeAttribute(a);
+      const o = from[k];
+      if (!isNew(o)) dupOf.set(c, o);
+      else if (dupOf.has(o)) dupOf.set(c, dupOf.get(o));
+    });
+    /* A moved original is hidden behind its stand-in: the copy shows as the original did. */
+    const moved = moveEdits.get(el);
+    if (moved) {
+      copy.style.visibility = moved.inline.visibility;
+      copy.style.display = moved.inline.display;
+    }
+    return copy;
+  }
+  function addCopy(el, parent, next) {
+    const copy = cloneNew(el);
+    parent.insertBefore(copy, next);
+    register(copy, isNew(el) ? addEdits.get(el)?.kind ?? "copy" : "copy");
+    mark(copy);
+    return copy;
+  }
+
+  /* ⌘D: a copy right after each selected element, and the copies become the selection, like Figma. */
+  function duplicate() {
+    const els = outermost(selectedAll()).filter(visible);
+    if (!els.length) return;
+    const copies = els.map((el) => {
+      const after = moveEdits.get(el)?.inflow ?? el;
+      return addCopy(el, after.parentNode, after.nextSibling);
+    });
+    structVersion++;
+    selectMany(copies);
+    render();
+  }
+
+  /* ⌘V: into the selected frame (at its end), or after the selected element, or after the originals. */
+  function paste() {
+    const els = clip.filter((el) => el.isConnected);
+    if (!els.length) return;
+    const target = selected && visible(selected) ? selected : null;
+    const into = target && isLayoutBox(target) && layerKids(target).length > 0 && !els.includes(target) ? target : null;
+    const copies = els.map((el) => {
+      const after = into ? null : target ?? moveEdits.get(el)?.inflow ?? el;
+      return addCopy(el, into ?? after.parentNode, into ? null : after.nextSibling);
+    });
+    structVersion++;
+    selectMany(copies);
+    render();
+  }
+
+  /* Figma's auto layout guesses its direction and gap from how the layers sit: side by side is horizontal. */
+  function arrangement(els) {
+    const rs = els.map((el) => el.getBoundingClientRect());
+    if (rs.length < 2) return { dir: "column", gap: 0 };
+    const byX = [...rs].sort((a, b) => a.left - b.left);
+    const byY = [...rs].sort((a, b) => a.top - b.top);
+    const gapsX = byX.slice(1).map((r, k) => r.left - byX[k].right);
+    const gapsY = byY.slice(1).map((r, k) => r.top - byY[k].bottom);
+    const row = gapsX.every((g) => g > -2) && Math.min(...gapsX) >= Math.min(...gapsY);
+    const gaps = row ? gapsX : gapsY;
+    return { dir: row ? "row" : "column", gap: Math.max(0, snap(gaps.reduce((t, g) => t + g, 0) / gaps.length)) };
+  }
+
+  /* ⇧A wraps the selection in a new auto layout frame (⌘⌥G and ⌘G in a plain frame). The frame takes the
+     first element's place; the selected elements move into it in page order. A single frame that has no
+     auto layout yet just gets it, like Figma. */
+  function wrap(auto) {
+    let els = outermost(selectedAll()).filter(visible);
+    if (!els.length) return;
+    if (auto && els.length === 1 && layerKids(els[0]).length && !/flex|grid/.test(getComputedStyle(els[0]).display)) {
+      setFlow(els[0], arrangement(layerKids(els[0])).dir);
+      return;
+    }
+    if (els.some((el) => moveEdits.has(el))) {
+      status = "error";
+      message = "Copy or undo the moves in this selection first";
+      return render();
+    }
+    els = inDomOrder(els);
+    const { dir, gap } = arrangement(els);
+    const frame = makeNode("frame");
+    frame.style.backgroundColor = ""; // a wrapper has no fill of its own
+    if (auto) Object.assign(frame.style, { flexDirection: dir, gap: `${gap}px`, alignItems: dir === "row" ? "center" : "flex-start" });
+    else Object.assign(frame.style, { display: "", flexDirection: "", alignItems: "", gap: "" });
+    const first = els[0];
+    first.parentNode.insertBefore(frame, first);
+    for (const el of els) {
+      if (!isNew(el) && !origPos.has(el)) origPos.set(el, { parent: el.parentNode, next: el.nextSibling });
+      frame.append(el);
+    }
+    register(frame, "frame", false); // the frame is new; what it holds stays what it was
+    mark(frame);
+    structVersion++;
+    select(frame);
+    render();
+  }
+
+  /* ⌘⇧G: a frame made here lets go of its children, which take its place; then it goes. */
+  function ungroup() {
+    const frames = outermost(selectedAll()).filter((el) => isNew(el) && layerKids(el).length);
+    if (!frames.length) {
+      status = "error";
+      message = "Ungroup works on frames made here. Use Delete for existing wrappers";
+      return render();
+    }
+    const kids = [];
+    for (const f of frames) {
+      for (const k of [...f.children]) {
+        f.parentNode.insertBefore(k, f);
+        kids.push(k);
+      }
+      f.remove();
+      for (const n of [f]) addEdits.delete(n);
+    }
+    structVersion++;
+    selectMany(kids.filter(visible));
+    render();
+  }
+
+  /* ⌘⌥C / ⌘⌥V: copy and paste the look (fill, stroke, radius, effects, opacity, and type between text layers). */
+  let copiedLook = null;
+  const LOOK_PROPS = ["background-color", ...BORDER_SIDES("width"), ...BORDER_SIDES("style"), ...BORDER_SIDES("color"), "box-shadow", "opacity"];
+  function copyLook() {
+    if (!selected) return;
+    const cs = getComputedStyle(selected);
+    const bordered = SIDES.some((side) => px(cs, `border-${side}-width`) > 0 && cs.getPropertyValue(`border-${side}-style`) !== "none");
+    const props = LOOK_PROPS.filter((p) => bordered || !p.startsWith("border-")); // no stroke: leave the target's alone
+    copiedLook = { props: Object.fromEntries(props.map((p) => [p, cs.getPropertyValue(p)])), radius: currentRadius(selected), text: isTextLayer(selected) ? Object.fromEntries(TYPE_PROPS.map((p) => [p, cs.getPropertyValue(p)])) : null };
+    status = "done";
+    message = "Copied properties";
+    render();
+  }
+  function pasteLook() {
+    if (!copiedLook) return;
+    batch(() => {
+      for (const el of selectedAll()) {
+        for (const [prop, v] of Object.entries(copiedLook.props)) setStyle(el, [prop], v);
+        setRadius(el, copiedLook.radius);
+        if (copiedLook.text && isTextLayer(el)) for (const [prop, v] of Object.entries(copiedLook.text)) setStyle(el, [prop], v);
+      }
+    });
+  }
+
+  /* ---------- new elements in the prompt: as markup, so the agent can build them ---------- */
+
+  const cssColor = (c) => {
+    const m = c.match(/rgba?\(([^)]+)\)/);
+    if (!m) return c;
+    const [, , , a = 1] = m[1].split(/[ ,/]+/).filter(Boolean).map(Number);
+    return a < 1 ? c : hexOf(c);
+  };
+  const styleOf = (el) =>
+    (el.getAttribute("style") || "")
+      .split(";")
+      .map((d) => d.trim())
+      .filter((d) => d && !/^(outline|visibility: visible|display: none)/.test(d))
+      .map((d) => d.replace(/rgba?\([^)]*\)/g, cssColor).replace(/"/g, "'"))
+      .join("; ");
+  const SIDE_FAMILIES = [
+    ["border-color", BORDER_SIDES("color")],
+    ["border-width", BORDER_SIDES("width")],
+    ["border-style", BORDER_SIDES("style")],
+    ["border-radius", ["border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius", "border-bottom-left-radius"]],
+    ["padding", SIDES.map((side) => `padding-${side}`)],
+    ["margin", SIDES.map((side) => `margin-${side}`)],
+  ];
+  const ownText = (el) => squash([...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.nodeValue).join(" "));
+  const tagName = (el) => {
+    const cls = [...el.classList].find((c) => !c.startsWith("ptk"));
+    return `<${el.tagName.toLowerCase()}${cls ? `.${cls.replace(/^[A-Za-z]+-module__[A-Za-z0-9_-]+__/, "")}` : ""}>`;
+  };
+  /* A copy of an existing element: what it copies, and what was changed in the copy (text, inline styles). */
+  function copyChanges(root) {
+    const lines = [];
+    for (const c of [root, ...root.querySelectorAll("*")]) {
+      if (c.hasAttribute("data-ptk-note")) continue;
+      const o = dupOf.get(c);
+      const who = c === root ? "" : `${tagName(c)} `;
+      if (!o) {
+        if (!dupOf.has(c.parentElement)) continue; // inside a new node listed below
+        const at = [...c.parentElement.children].indexOf(c) + 1;
+        lines.push(`${who}is new, at position ${at} in ${tagName(c.parentElement)}:\n${markup(c, 2)}`);
+        continue;
+      }
+      const [t1, t2] = [ownText(o), ownText(c)];
+      if (t1 !== t2) lines.push(`${who}text ${JSON.stringify(t1)} → ${JSON.stringify(t2)}`);
+      const changed = new Map();
+      for (const prop of new Set([...c.style, ...o.style])) {
+        const [a, b] = [o.style.getPropertyValue(prop), c.style.getPropertyValue(prop)];
+        if (a === b || prop === "outline") continue;
+        changed.set(prop, [a ? cssColor(a) : shownStyle(prop, getComputedStyle(o).getPropertyValue(prop)), b ? cssColor(b) : "(the default)"]);
+      }
+      /* Four equal sides read as one shorthand line. */
+      for (const [short4, props] of SIDE_FAMILIES) {
+        const vals = props.map((p) => changed.get(p));
+        if (!vals.every(Boolean) || !vals.every((v) => v[0] === vals[0][0] && v[1] === vals[0][1])) continue;
+        props.forEach((p) => changed.delete(p));
+        changed.set(short4, vals[0]);
+      }
+      for (const [prop, [a, b]] of changed) lines.push(`${who}${prop}: ${a} → ${b}`);
+    }
+    return lines;
+  }
+  function markup(n, depth = 0) {
+    const pad = "   " + "  ".repeat(depth);
+    if (!isNew(n)) return `${pad}{/* existing ${short(n).replace(/ \(in <.*$/, "")}, moved in here */}`;
+    if (dupOf.has(n)) {
+      const changes = copyChanges(n);
+      return `${pad}{/* copy of ${short(dupOf.get(n))}${changes.length ? `, changed:\n${changes.map((l) => `${pad}     ${l}`).join("\n")}\n${pad}` : " "}*/}`;
+    }
+    const kind = n.getAttribute("data-ptk-added");
+    const st = styleOf(n);
+    const open = `<${n.tagName.toLowerCase()}${st ? ` style="${st}"` : ""}>`;
+    const close = `</${n.tagName.toLowerCase()}>`;
+    if (kind === "box") return `${pad}${open}{/* ${addEdits.get(n)?.note || "placeholder: ask me what goes here"} */}${close}`;
+    const kids = [...n.childNodes].filter((c) => (c.nodeType === 3 && c.nodeValue.trim()) || (c.nodeType === 1 && !c.hasAttribute("data-ptk-note") && c !== host));
+    if (!kids.length) return `${pad}${open}${close}`;
+    if (kids.every((c) => c.nodeType === 3)) return `${pad}${open}${squash(n.textContent)}${close}`;
+    return `${pad}${open}\n${kids.map((c) => (c.nodeType === 3 ? `${pad}  ${squash(c.nodeValue)}` : markup(c, depth + 1))).join("\n")}\n${pad}${close}`;
   }
 
   /* Writing a box's note: plain text, ↵ or a click away saves, Esc cancels. */
@@ -2535,11 +2902,15 @@
   }
 
   function removeElement(el) {
-    if (addEdits.has(el)) {
-      /* A box drawn here was never in the source: taking it away just forgets it. */
+    if (isNew(el)) {
+      /* Made here, never in the source: taking it away just forgets it. Existing elements wrapped in it go
+         back out to its place first, then are deleted as usual (as Figma deletes a frame's children). */
+      const inside = [...el.querySelectorAll("*")].filter((n) => !isNew(n) && isNew(n.parentElement));
+      for (const n of inside) el.parentNode.insertBefore(n, el);
       el.remove();
-      addEdits.delete(el);
+      for (const n of [el, ...el.querySelectorAll("*")]) addEdits.delete(n);
       select(null);
+      inside.forEach(removeElement);
       render();
       return paint();
     }
@@ -2671,6 +3042,13 @@
 
   /* Put the element into a slot: its in-flow copy goes there and the original leaves the layout. */
   function placeFlow(el, container, next) {
+    if (isNew(el)) {
+      /* Not in the source yet, so no stand-in copy: the element itself moves. */
+      if (el !== next && !el.contains(container)) container.insertBefore(el, next && next.parentElement === container ? next : null);
+      structVersion++;
+      render();
+      return paint();
+    }
     const edit = newEdit(el, "flow");
     if (!edit.inflow) {
       el.style.display = edit.inline.display; // measure it in place before the copy is made
@@ -2743,6 +3121,13 @@
     const at = edit?.to ? edit.to.index : slotOf(el).index;
     const index = Math.max(0, Math.min(kids.length, at + dir));
     placeFlow(el, container, kids[index] ?? null);
+  }
+  /* ⌘⇧] / ⌘⇧[: to the end or the start of its container. */
+  function flowEnd(el, last) {
+    const edit = moveEdits.get(el)?.mode === "flow" ? moveEdits.get(el) : null;
+    const container = edit?.to?.container ?? el.parentElement;
+    const kids = visibleKids(container, el).filter((k) => k !== edit?.inflow);
+    placeFlow(el, container, last ? null : kids[0] ?? null);
   }
 
   function describeFlow(edit) {
@@ -2846,7 +3231,8 @@
   const chevron = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>';
   const isTextLayer = (el) => !layerKids(el).length && hasOwnText(el) && !SKIP.has(el.tagName);
   function layerLabel(el) {
-    if (addEdits.has(el)) return "New box";
+    const kind = isNew(el) && el.getAttribute("data-ptk-added");
+    if (kind && kind !== "text") return KIND_NAMES[kind];
     if (isTextLayer(el)) return squash(el.innerText).slice(0, 60); // text layers are named by their text, like Figma
     const cls = [...el.classList].find((c) => !c.startsWith("ptk"));
     if (cls) return cls.replace(/^[A-Za-z]+-module__[A-Za-z0-9_-]+__/, "");
@@ -3164,7 +3550,14 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     };
     const name = (n) => esc(short(n).replace(/ \(in <.*$/, ""));
 
-    if ((drag?.kind === "flow" || drag?.kind === "draw") && drag.slot) {
+    if (drag?.kind === "draw" && drag.placed) {
+      const c = drag.box.parentElement;
+      place(dropBox, c === document.body ? null : c);
+      const size = drag.h == null ? `W ${drag.w}` : `${drag.w} × ${drag.h}`;
+      tagAt(drag.box.getBoundingClientRect(), `${size} <span class="into">· in ${name(c)}</span>`);
+      return;
+    }
+    if (drag?.kind === "flow" && drag.slot) {
       const s = drag.slot;
       const c = s.container.getBoundingClientRect();
       const cs = getComputedStyle(s.container);
@@ -4377,6 +4770,9 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       move: copyMap(moveEdits),
       remove: copyMap(removeEdits),
       add: copyMap(addEdits),
+      pos: [...origPos.keys()].map((node) => ({ node, parent: node.parentNode, next: node.nextSibling })),
+      ver: structVersion,
+      sel: selectedAll(),
       comments: comments.map((c) => ({ ...c })),
       artifacts: [...[...moveEdits.values()].flatMap((e) => [e.clone, e.inflow].filter(Boolean)), ...addEdits.keys()].map((node) => ({
         node,
@@ -4398,6 +4794,7 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       [...st.add.values()].map((e) => e.note),
       st.comments.map((c) => c.text),
       st.artifacts.map((a) => a.style),
+      st.ver,
     ]);
 
   function applyState(st) {
@@ -4417,6 +4814,9 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       if (a.style == null) a.node.removeAttribute("style");
       else a.node.setAttribute("style", a.style);
     }
+    /* Existing elements wrapped into new frames: back where this state had them, or where they started. */
+    const at = new Map(st.pos.map((p) => [p.node, p]));
+    placeAll([...origPos].map(([node, first]) => at.get(node) ?? { node, ...first }));
     for (const el of touched) {
       const now = st.els.get(el) ?? pristine.get(el);
       if (now.style == null) el.removeAttribute("style");
@@ -4441,11 +4841,27 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     comments.length = 0;
     comments.push(...st.comments.map((c) => ({ ...c })));
     touched.forEach(mark);
-    if (selected && (!selected.isConnected || !selected.getClientRects().length)) select(null);
+    /* The selection comes back with the step, like Figma's undo. */
+    const sel = (st.sel ?? []).filter(visible);
+    if (sel.length) selectMany(sel);
+    else if (selected && (!selected.isConnected || !selected.getClientRects().length)) select(null);
     trackPins();
     paintPins();
     render();
     paint();
+  }
+
+  /* Put nodes back by parent and next sibling. A next sibling may itself be waiting to go back, so a few passes. */
+  function placeAll(list) {
+    let left = list.filter((p) => p.node.parentNode !== p.parent || p.node.nextSibling !== p.next);
+    for (let pass = 0; left.length && pass < 4; pass++) {
+      left = left.filter((p) => {
+        if (!p.parent) return false;
+        const ready = !p.next || p.next.parentNode === p.parent;
+        if (ready || pass === 3) p.parent.insertBefore(p.node, ready ? p.next : null);
+        return !ready && pass < 3;
+      });
+    }
   }
 
   let history = [];
@@ -4513,6 +4929,8 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     for (const [el, e] of radiusEdits) el.style.borderRadius = e.inline;
     for (const [el, e] of moveEdits) unmove(el, e);
     for (const [el, e] of removeEdits) el.style.display = e.display;
+    placeAll([...origPos].map(([node, first]) => ({ node, ...first })));
+    origPos.clear();
     for (const el of addEdits.keys()) el.remove();
     for (const [el, e] of styleEdits) {
       for (const [prop, pe] of e.props) {
@@ -4542,6 +4960,8 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     moveEdits.clear();
     removeEdits.clear();
     addEdits.clear();
+    created = new WeakSet(); // copied: from here on they are the page's own elements, Claude is building them
+    origPos.clear();
     styleEdits.clear();
     comments.length = 0;
     paintPins();
@@ -4639,7 +5059,8 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     const how = [];
     /* Text reads best as plain arrows: "Old" → "New". The quoted string is what the agent searches for. */
     const textLines = [];
-    for (const e of textEdits.values()) {
+    const texts = own(textEdits);
+    for (const [, e] of texts) {
       const emptied = !e.after;
       for (const p of e.parts?.length ? e.parts : [e]) {
         const earlierText = p.shown !== p.before ? ` (the page may already show ${JSON.stringify(p.shown)})` : "";
@@ -4648,41 +5069,41 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       }
     }
     const TEXT_RULE = "Replace each string where it is defined, including code that sets it again. Fix spelling and capitalisation only.";
-    if (textEdits.size) {
+    if (texts.length) {
       sections.push(`Text\n\n${textLines.join("\n")}`);
       how.push(TEXT_RULE);
     }
-    if (radiusEdits.size) {
-      const list = [...radiusEdits.entries()].map(([el, e]) => {
+    if (own(radiusEdits).length) {
+      const list = own(radiusEdits).map(([el, e]) => {
         const by = setBy(el, ["border-radius", "border-top-left-radius"]);
         return `${++i}. <${e.tag}> ${where(e)}\n   border-radius: ${e.before}${earlier(e)} → ${e.full ? "fully rounded (pill, 9999px)" : e.after}${by ? `\n${by}` : ""}`;
       });
       sections.push(`Corner radius\n\n${list.join("\n\n")}`);
       how.push(SHARED_NOTE, tokenNote());
     }
-    if (spaceEdits.size) {
-      const list = [...spaceEdits.entries()].map(([el, e]) => {
+    if (own(spaceEdits).length) {
+      const list = own(spaceEdits).map(([el, e]) => {
         const by = setBy(el, [...e.props.keys()]);
         return `${++i}. <${e.tag}> ${where(e)}\n${spaceLines(e)}${by ? `\n${by}` : ""}`;
       });
       sections.push(`Spacing\n\n${list.join("\n\n")}`);
       how.push(SHARED_NOTE, tokenNote());
     }
-    if (styleEdits.size) {
+    if (own(styleEdits).length) {
       const change = (prop, pe) => {
         const was = shownStyle(prop, pe.before);
         const [from, to] = [pe.fromVar ? `var(${pe.fromVar}) (${was})` : was, pe.label ?? shownStyle(prop, pe.after)];
         return from === to ? `${prop}: ${to}` : `${prop}: ${from} → ${to}`; // set on purpose, same as it computed
       };
       const typeList = [];
-      for (const [el, e] of styleEdits) {
+      for (const [el, e] of own(styleEdits)) {
         const typeLines = [...e.props].filter(([prop]) => TYPE_PROPS.includes(prop)).map(([prop, pe]) => change(prop, pe));
         if (!typeLines.length) continue;
         const by = setBy(el, TYPE_PROPS.filter((p) => e.props.has(p)).concat("font"));
         typeList.push(`${++i}. <${e.tag}> ${where(e)}\n${typeLines.map((l) => `   ${l}`).join("\n")}${by ? `\n${by}` : ""}`);
       }
       if (typeList.length) sections.push(`Typography\n\n${typeList.join("\n\n")}`);
-      const list = [...styleEdits.entries()].filter(([, e]) => [...e.props.keys()].some((p) => !TYPE_PROPS.includes(p))).map(([el, e]) => {
+      const list = own(styleEdits).filter(([, e]) => [...e.props.keys()].some((p) => !TYPE_PROPS.includes(p))).map(([el, e]) => {
         const lines = [];
         const done = new Set(TYPE_PROPS);
         /* Four border sides changed together read as one line per property. */
@@ -4721,14 +5142,31 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       const kind = e.label.match(/^<[^ >]+/)[0].slice(1);
       return e.twins > 1 ? `Remove ${e.label} (${at}), from every place it repeats: it is one of ${e.twins} ${kind} on the page.` : `Remove ${e.label} (${at}).`;
     });
-    if (addEdits.size) {
-      const list = [...addEdits].map(([el, e]) => {
+    const tops = topAdded();
+    if (tops.length) {
+      const list = tops.map((el) => {
         const at = slotOf(el);
         const around = [at.prev && `after ${short(at.prev)}`, at.next && `before ${short(at.next)}`].filter(Boolean).join(", ");
-        return `${++i}. Add element: ${e.note || "(no description yet, ask me what goes here)"}\n   Size: roughly ${el.offsetWidth} × ${el.offsetHeight} px\n   Where: in ${short(at.container)} at position ${at.index + 1} of ${at.count}${around ? ` (${around})` : ""}`;
+        const place = `   Where: in ${short(at.container)} at position ${at.index + 1} of ${at.count}${around ? ` (${around})` : ""}`;
+        const kind = addEdits.get(el)?.kind;
+        if (kind === "box") {
+          const e = addEdits.get(el);
+          return `${++i}. Add element: ${e.note || "(no description yet, ask me what goes here)"}\n   Size: roughly ${el.offsetWidth} × ${el.offsetHeight} px\n${place}`;
+        }
+        if (dupOf.has(el)) {
+          const changes = copyChanges(el);
+          return `${++i}. Duplicate ${short(dupOf.get(el))}${changes.length ? `\n   Changed in the copy:\n${changes.map((l) => `     ${l}`).join("\n")}` : ""}\n${place}`;
+        }
+        const wraps = [...el.querySelectorAll("*")].some((n) => !isNew(n));
+        const name = (KIND_NAMES[kind] ?? "element").toLowerCase();
+        const flow = /flex/.test(getComputedStyle(el).display) ? ` (auto layout, ${getComputedStyle(el).flexDirection.startsWith("column") ? "vertical" : "horizontal"})` : "";
+        return `${++i}. New ${name}${flow}${wraps ? ", wrapping existing elements" : ""}\n${place}\n${markup(el)}`;
       });
       sections.push(`Added\n\n${list.join("\n\n")}`);
-      how.push("Added: build each element where it says, in the normal layout flow (like auto layout), at about that size.");
+      how.push(
+        "Added: build each new element where it says, in the normal layout flow (like auto layout). The markup's inline styles are the exact look: write it the project's way (its components, classes and tokens), not as inline styles. A copy is another instance of that element or component, with the changes listed. Existing elements moved into a new frame keep their own code.",
+        tokenNote(),
+      );
     }
     if (removeEdits.size) {
       sections.push(`Removed\n\n${removeLines.join("\n")}`);
@@ -4744,9 +5182,9 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       how.push("Comments are my notes, not exact values: make the smallest change that does it, ask if unclear.");
     }
     /* Only copy changed: the arrows and one line of instructions are the whole prompt. */
-    if (textEdits.size + removeEdits.size === count()) {
+    if (texts.length + removeEdits.size === count()) {
       const parts = [textLines.join("\n"), removeLines.join("\n")].filter(Boolean).join("\n\n");
-      return `${removeEdits.size ? "On" : "Change this copy on"} ${location.href}:\n\n${parts}${textEdits.size ? `\n\n${TEXT_RULE}` : ""}`;
+      return `${removeEdits.size ? "On" : "Change this copy on"} ${location.href}:\n\n${parts}${texts.length ? `\n\n${TEXT_RULE}` : ""}`;
     }
     const intro = comments.length === count() ? `Comments on ${location.href}:` : `Apply these design changes from ${location.href}:`;
     const notes = [...new Set(how)].map((n) => `- ${n}`).join("\n");
@@ -4819,7 +5257,7 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
   window.addEventListener("pointerdown", (e) => {
     if (!tool || fromToolbar(e) || e.button !== 0) return;
     e.stopPropagation();
-    if (tool === "text" && e.target.closest?.("[data-ptk-added] > [data-ptk-note]")) {
+    if (tool === "text" && e.target.closest?.('[data-ptk-added="box"] > [data-ptk-note]')) {
       const note = e.target.closest("[data-ptk-note]");
       if (note.getAttribute("contenteditable") === null) setTimeout(() => editNote(note), 0);
       return;
@@ -4827,13 +5265,18 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     if (tool === "text") {
       const el = pickText(e.target);
       if (el) begin(el);
-      else if (editing) commit(editing);
-    } else if (tool === "move" && e.target.closest?.("[data-ptk-added] > [data-ptk-note]") && !(e.metaKey || e.ctrlKey || e.shiftKey)) {
+      else {
+        /* Nothing to type into here: a click or drag makes a new text layer, like Figma's T. */
+        if (editing) commit(editing);
+        e.preventDefault();
+        startDraw(e, "text");
+      }
+    } else if (tool === "move" && e.target.closest?.('[data-ptk-added="box"] > [data-ptk-note]') && !(e.metaKey || e.ctrlKey || e.shiftKey)) {
       e.preventDefault();
       const note = e.target.closest("[data-ptk-note]");
       select(note.parentElement);
       if (note.getAttribute("contenteditable") === null) setTimeout(() => editNote(note), 0);
-    } else if (tool === "add") {
+    } else if (DRAW_TOOLS.has(tool)) {
       e.preventDefault();
       startDraw(e);
     } else if (tool === "comment") {
@@ -4936,6 +5379,55 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     if (!path.includes(menu) && !path.some((n) => n.dataset?.menu)) setMenu(null);
   }, true);
 
+  /* Figma's layer shortcuts, on whatever is selected. e.code, since ⌥ changes e.key on a Mac. True when handled. */
+  function figmaKey(e) {
+    const mod = e.metaKey || e.ctrlKey;
+    const code = e.code;
+    const sel = visible(selected);
+    const all = () => outermost(selectedAll());
+    if (mod) {
+      if (!sel && !(code === "KeyV" && !e.altKey && clip.length)) return false;
+      if (code === "KeyD" && !e.altKey && !e.shiftKey) return duplicate(), true; // ⌘D duplicate
+      if (code === "KeyG" && e.shiftKey) return ungroup(), true; // ⌘⇧G ungroup
+      if (code === "KeyG") return wrap(false), true; // ⌘G group, ⌘⌥G frame selection
+      if (code === "KeyC" && e.altKey) return copyLook(), true; // ⌘⌥C copy properties
+      if (code === "KeyV" && e.altKey) return pasteLook(), true; // ⌘⌥V paste properties
+      if (code === "KeyC" && !e.shiftKey && getSelection()?.isCollapsed !== false) {
+        clip = all(); // ⌘C copy layers (selected page text still copies as text)
+        status = "done";
+        message = `Copied ${clip.length} layer${clip.length === 1 ? "" : "s"}`;
+        render();
+        return true;
+      }
+      if (code === "KeyV" && !e.shiftKey) return paste(), true; // ⌘V paste into the selected frame or after the selection
+      if (code === "KeyA" && !e.shiftKey && !e.altKey) return selectMany(layerKids(selected.parentElement)), true; // ⌘A all siblings
+      if (code === "BracketRight" || code === "BracketLeft") {
+        /* ⌘] ⌘[ forward and backward one step in the layout, ⌘⇧] ⌘⇧[ to the end and the start. */
+        const later = code === "BracketRight";
+        for (const el of all()) e.shiftKey ? flowEnd(el, later) : flowNudge(el, later ? 1 : -1);
+        return true;
+      }
+      if (code === "KeyH" && e.shiftKey) return act("visible"), true; // ⌘⇧H show and hide
+      return false;
+    }
+    if (!sel) return false;
+    if (code === "KeyA" && e.shiftKey && e.altKey) {
+      /* ⌥⇧A remove auto layout */
+      batch(() => selectedAll().forEach((el) => /flex|grid/.test(getComputedStyle(el).display) && setFlow(el, "free")));
+      return true;
+    }
+    if (e.altKey) return false;
+    if (code === "KeyA" && e.shiftKey) return wrap(true), true; // ⇧A add auto layout
+    if ((code === "KeyH" || code === "KeyV") && e.shiftKey) return act(code === "KeyH" ? "flip-x" : "flip-y"), true; // ⇧H ⇧V flip
+    if (/^Digit\d$/.test(code) && !e.shiftKey) {
+      /* 1 to 9 is 10% to 90% opacity, 0 is 100%, like Figma. */
+      const n = +code.slice(5);
+      batch(() => selectedAll().forEach((el) => setStyle(el, ["opacity"], String(n ? n / 10 : 1))));
+      return true;
+    }
+    return false;
+  }
+
   window.addEventListener("keydown", (e) => {
     /* ⌥H hides the whole toolkit (a clean look at the page, a screenshot) and brings it back. Edits stay;
        the page's own fields keep typing ⌥H. */
@@ -5001,6 +5493,11 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     }
     const t = e.composedPath()[0];
     const typing = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+    if (!typing && tool && figmaKey(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (typing || mod) return;
 
     if (boxTool() && selected) {
@@ -5062,16 +5559,21 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     }
     if (e.altKey) return;
     const key = e.key.toLowerCase();
-    const shortcuts = { t: "text", s: "spacing", v: "move", m: "absolute", r: "add", c: "comment" };
+    const shortcuts = { t: "text", s: "spacing", v: "move", m: "absolute", f: "frame", a: "frame", p: "add", r: "rect", o: "ellipse", l: "line", c: "comment" };
     if (shortcuts[key] && !e.shiftKey) {
       e.preventDefault();
       e.stopPropagation();
-      setTool(toolName() === shortcuts[key] ? null : shortcuts[key]);
+      /* Creation tools stay on when pressed again, like Figma's; the others still toggle off. */
+      setTool(toolName() === shortcuts[key] && !DRAW_TOOLS.has(shortcuts[key]) ? null : shortcuts[key]);
     } else if (e.key === "Escape" && tool) {
       e.preventDefault();
       e.stopPropagation();
       if (drag?.kind === "flow") dropFlow(true);
-      else if (drag?.kind === "move") {
+      else if (drag?.kind === "draw") {
+        drag.box.remove(); // cancel the shape being drawn
+        drag = null;
+        paint();
+      } else if (drag?.kind === "move") {
         setMove(drag.el, drag.start[0], drag.start[1]); // cancel the drag in progress
         drag = null;
       } else if (boxTool() && selected) select(null);

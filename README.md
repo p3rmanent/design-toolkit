@@ -40,14 +40,39 @@ to your dev page.
 
 ## Tools
 
+The toolbar follows Figma's: **Select**, **Frame**, **Shape** and **Text**, each group with a chevron for the rest of the group (the button shows the tool you last picked from it), then the toolkit's own **Spacing** and **Comment**.
+
 | Key | Tool |
 | --- | --- |
-| `T` | **Text**: click any copy and type, `↵` or `Esc` to leave the field. Double-click text with Move, Radius or Spacing on to jump straight into Text |
-| `S` | **Spacing**: click any element, drag its padding (green), margin (orange) or gap (purple) bands, click a number to type |
 | `V` | **Select**: click anything to select it (the toolkit opens on Select), drag its corner handle to change the radius, drag it into any container to reorder or re-parent; arrows reorder. A **Layers** tree shows top left while something is selected |
-| `M` | **Move**: place anything freely; the prompt asks for position: absolute, with an annotated screenshot of the page |
-| `R` | **Add**: drag on the page to draw a striped placeholder box inside the container you start in; Select takes over with it selected and its **Desc** label ready: write what the box should contain (click the label later to change it). The prompt asks for an element of that size and place, with that description. Add leads the toolbar |
+| `M` | **Move** (in Select's group): place anything freely; the prompt asks for position: absolute, with an annotated screenshot of the page |
+| `F` / `A` | **Frame**: draw an auto layout frame (vertical, 10 gap, white fill, Figma's defaults) |
+| `P` | **Placeholder** (in Frame's group): draw a striped box and write what it should contain in its **Desc** label (click the label later to change it) |
+| `R` | **Rectangle**: draw a box, #D9D9D9 like Figma's |
+| `L` | **Line**: draw a 1px divider along the longer axis |
+| `O` | **Ellipse**: draw a circle or oval |
+| `T` | **Text**: click any copy and type, `↵` or `Esc` to leave the field. Click or drag where there is no text to add a new text layer. Double-click text with Select or Spacing on to jump straight into Text |
+| `S` | **Spacing**: click any element, drag its padding (green), margin (orange) or gap (purple) bands, click a number to type |
 | `C` | **Comment**: click any element, or select some text, and type a note; `↵` adds it, `⇧↵` for a new line. Numbered pins mark each comment, click one to edit or delete it |
+
+**Drawing** works like auto layout, not like a free canvas: the new layer goes into the page's flow as soon as you start dragging, in the slot where you pressed, and grows there as you drag, so the layout around it reflows live and what you see is where it lands. A label shows its size and container. Starting inside a frame puts the layer inside it. A click instead of a drag makes a 100 × 100 layer. `⇧` keeps it square (a circle, for Ellipse), `⌥` draws from the centre, `⌘` leaves the grid, `Esc` cancels. Then Select takes over with the new layer selected, so the side panel styles it: fill, stroke, radius, auto layout, size, padding, effects.
+
+| Layer shortcut | Does |
+| --- | --- |
+| `⌘D` | duplicate the selection, right after itself |
+| `⌘C` / `⌘V` | copy layers, paste into the selected frame or after the selection |
+| `⌘⌥C` / `⌘⌥V` | copy and paste properties (fill, stroke, radius, effects, opacity, and type between text layers) |
+| `⇧A` | wrap the selection in a new auto layout frame (direction and gap read from how the layers sit); on a frame without auto layout, add it |
+| `⌥⇧A` | remove auto layout |
+| `⌘⌥G` / `⌘G` | wrap the selection in a plain frame |
+| `⌘⇧G` | ungroup a frame made here: its children take its place |
+| `⌘]` / `⌘[` | one step later or earlier in the layout; with `⇧`, to the end or the start |
+| `⌘A` | select every layer next to the selection |
+| `1` … `9`, `0` | opacity 10% … 90%, 100% |
+| `⇧H` / `⇧V` | flip horizontally or vertically |
+| `⌘⇧H` | hide or show |
+
+New layers reach the prompt as markup: where each goes (container, position, neighbours) and its exact inline styles, nested as you built it, which the agent is told to write the project's way (components, classes, tokens). A duplicate of an existing element is "another instance of" it, with what you changed in the copy. Existing elements you wrapped in a new frame are named in place, so the agent moves their code into the new wrapper.
 
 Everything snaps to a 2px grid, typed values included (13 becomes 14). The value an element started with is a stop too, so going back to an off-grid original (say 15) lands on it exactly and the edit drops out of the prompt.
 
@@ -62,7 +87,7 @@ Everything snaps to a 2px grid, typed values included (13 becomes 14). The value
 | `Esc` | deselect, then leave the tool |
 | `⌥H` | hide the whole toolkit for a clean look at the page, `⌥H` again brings it back (edits stay) |
 
-**Panel.** While Move, Radius or Spacing is on, a panel docks on the right (the page moves over to make room). It copies Figma's design panel (UI3), section by section, in CSS terms:
+**Panel.** While something is selected, a panel docks on the right (the page moves over to make room). It copies Figma's design panel (UI3), section by section, in CSS terms:
 **Position** (align within a flex or grid parent, X and Y read-only, rotation, rotate 90° and flips, and absolute position: like Figma it keeps the element where it is at its size, makes the parent relative, and lets you type X and Y),
 **Auto layout** (flow: freeform, vertical, horizontal, grid, wrap; resizing W and H as Fixed, Hug or Fill; the nine-dot alignment; gap, or Auto for space-between; padding horizontal and vertical, or all four sides; clip content),
 **Appearance** (opacity, corner radius, hide), **Typography** (font, weight, size, line height, letter spacing, alignment; shown for text),
