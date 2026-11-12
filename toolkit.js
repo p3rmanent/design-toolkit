@@ -5,12 +5,13 @@
 
    Figma's toolbar and keys:
    V  Select   click to select, drag into any container to reorder or re-parent (M: Move, free placement).
-   F  Frame    draw an auto layout frame (P: a placeholder box you describe in words).
-   R  Shape    draw a rectangle (L line, O ellipse). ⇧ square, ⌥ from the centre. Drawn layers join the flow.
+   F  Frame    draw a frame, no auto layout until ⇧A (P: a placeholder box you describe in words).
+   R  Shape    draw a rectangle (L line, O ellipse). ⇧ square, ⌥ from the centre. Drawn layers join the flow,
+               except in a frame without auto layout, where they stay where you put them.
    T  Text     click any copy and type, or click empty space for a new text layer.
    S  Spacing  click any element, drag its padding, margin or gap bands, or click a value to type one.
    C  Comment  click any element (or select some text) and leave a note in your own words.
-   ⌘D duplicate, ⌘C ⌘V copy and paste layers, ⌘⌥C ⌘⌥V properties, ⇧A wrap in auto layout, ⌘⌥G frame,
+   ⌘D or ⌥-drag duplicate, ⌘C ⌘V copy and paste layers, ⌘⌥C ⌘⌥V properties, ⇧A wrap in auto layout, ⌘⌥G frame,
    ⌘⇧G ungroup, ⌘] ⌘[ reorder, 0-9 opacity, ⇧H ⇧V flip, ⌘⇧H hide.
 
    ⌥H hides the whole toolkit and brings it back.
@@ -2022,6 +2023,12 @@
 
   /* Freeform is normal block layout, Vertical and Horizontal are flexbox, Grid is CSS grid (two columns to start). */
   function setFlow(el, v) {
+    /* A frame made here: auto layout on and off moves its layers in and out of the flow, as in Figma. */
+    if (isFrame(el) && v === "free") return isFree(el) || batch(() => toFree(el));
+    if (isFree(el)) {
+      batch(() => toAuto(el, v === "grid" || v === "auto" ? null : v));
+      if (v !== "grid") return;
+    }
     const base = shownOf(el, "display");
     const inline = getComputedStyle(el).display.startsWith("inline");
     batch(() => {
@@ -2524,14 +2531,15 @@
   /* ================= Create: frames, shapes, text and placeholders ================= */
 
   /* Drag on the page to draw. Like Select's drag it goes into the layout, auto layout style, not absolutely:
-     while you draw, the blue line shows the slot it will take (container and position), and on release it is
-     inserted there at the size you drew. A click makes a 100 × 100 one. ⇧ keeps it square (a circle, for the
+     it takes the slot where you pressed and grows there (in a frame without auto layout, it is placed where
+     you draw it). A click makes a 100 × 100 one. ⇧ keeps it square (a circle, for the
      ellipse), ⌥ draws from the centre. Then Select takes over with it selected, as in Figma. */
   const LEAF_KINDS = new Set(["rect", "ellipse", "line", "box", "text"]);
-  const KIND_NAMES = { frame: "Frame", rect: "Rectangle", ellipse: "Ellipse", line: "Line", box: "Placeholder", text: "Text" };
-  /* Figma's defaults: frames are white auto layout (vertical, 10 gap), shapes are #D9D9D9, lines 1px black. */
+  const KIND_NAMES = { frame: "Frame", group: "Group", rect: "Rectangle", ellipse: "Ellipse", line: "Line", box: "Placeholder", text: "Text" };
+  /* Figma's defaults: frames are white with no auto layout (layers inside sit where you put them, ⇧A turns
+     auto layout on), shapes are #D9D9D9, lines 1px black. */
   const KIND_STYLE = {
-    frame: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "10px", backgroundColor: "#ffffff" },
+    frame: { position: "relative", backgroundColor: "#ffffff" },
     rect: { backgroundColor: "#d9d9d9" },
     ellipse: { backgroundColor: "#d9d9d9", borderRadius: "50%" },
     line: { backgroundColor: "#000000" },
@@ -2574,8 +2582,10 @@
       if (!d.slot) return;
       const c = d.slot.container;
       d.z = c.offsetWidth ? c.getBoundingClientRect().width / c.offsetWidth : 1; // a zoomed canvas: screen px back to CSS px
-      Object.assign(d.box.style, { flex: "none", outline: `1px solid ${BLUE}`, outlineOffset: "-1px" });
-      insertAt(d.box, d.slot);
+      d.free = isFree(c); // a frame without auto layout: the layer sits where it is drawn
+      Object.assign(d.box.style, { flex: "none", outline: `1px solid ${BLUE}`, outlineOffset: "-1px", position: d.free ? "absolute" : d.box.style.position });
+      if (d.free) c.append(d.box);
+      else insertAt(d.box, d.slot);
       d.placed = true;
     }
     let w = Math.abs(e.clientX - d.x);
@@ -2593,6 +2603,12 @@
     }
     if (d.shape === "text") d.h = null; // text sets its own height; the drag sets its width
     Object.assign(d.box.style, { width: `${d.w}px`, height: d.h == null ? "" : `${d.h}px` });
+    if (d.free) {
+      /* The corner you pressed stays put, whichever way you drag (⌥: the centre does). */
+      const x = e.altKey ? d.x - w / 2 : e.clientX < d.x ? d.x - w : d.x;
+      const y = e.altKey ? d.y - h / 2 : e.clientY < d.y ? d.y - h : d.y;
+      freePlace(d.box, d.box.parentElement, x, y, free);
+    }
     paint();
   }
   function drawEnd() {
@@ -2604,7 +2620,11 @@
       if (!d.slot) return paint();
       const fixed = d.shape !== "text";
       Object.assign(d.box.style, { width: fixed ? "100px" : "", height: fixed ? (d.shape === "line" ? "1px" : "100px") : "", flex: fixed ? "none" : "" });
-      insertAt(d.box, d.slot);
+      if (isFree(d.slot.container)) {
+        d.box.style.position = "absolute";
+        d.slot.container.append(d.box);
+        freePlace(d.box, d.slot.container, d.x, d.y);
+      } else insertAt(d.box, d.slot);
     }
     Object.assign(d.box.style, { outline: "", outlineOffset: "" });
     if (!d.box.getAttribute("style")) d.box.removeAttribute("style");
@@ -2626,6 +2646,89 @@
   }
   let freshText = null; // text just drawn: leaving it goes back to Select with it selected, like Figma
   const insertAt = (el, slot) => slot.container.insertBefore(el, slot.next?.parentNode === slot.container ? slot.next : null);
+
+  /* ---------- Frames without auto layout ----------
+     A frame made here starts without auto layout, like Figma's: what goes into it is placed absolutely, where
+     you draw or drop it. ⇧A turns auto layout on (the layers line up in the order they sit, with the gap and
+     padding they have), ⌥⇧A turns it off again (each layer stays where it is). */
+  const isFrame = (el) => isNew(el) && el?.getAttribute("data-ptk-added") === "frame";
+  const isFree = (el) => isFrame(el) && !/flex|grid/.test(getComputedStyle(el).display);
+  /* Its layers, as nodes in the page: a moved existing element counts by its in-flow copy. */
+  const frameKids = (el) => [...el.children].filter((k) => k !== host && !k.hasAttribute("data-ptk-note") && k.getClientRects().length > 0 && !moveEdits.has(k));
+  const zoomOf = (el) => (el.offsetWidth ? el.getBoundingClientRect().width / el.offsetWidth : 1);
+  /* A screen point as left and top inside a frame (its padding box, in CSS px). */
+  function freeAt(frame, x, y) {
+    const r = frame.getBoundingClientRect();
+    const z = zoomOf(frame);
+    return [(x - r.left) / z - frame.clientLeft, (y - r.top) / z - frame.clientTop];
+  }
+  /* Writes on a layer: a new one (or a moved element's stand-in) is just changed, an existing one is an edit. */
+  function put(el, props) {
+    for (const [prop, v] of Object.entries(props)) {
+      if (isNew(el) || el.hasAttribute("data-ptk-inflow")) el.style.setProperty(prop, v);
+      else if (v === "") unsetStyle(el, prop);
+      else setStyle(el, [prop], v);
+    }
+    editVersion++;
+  }
+  function freePlace(el, frame, x, y, free = false) {
+    const [l, t] = freeAt(frame, x, y);
+    put(el, { position: "absolute", left: `${snap(l, free)}px`, top: `${snap(t, free)}px` });
+  }
+  /* After a layer changes parent: into a frame without auto layout it is placed where it shows now; out of
+     one into a layout it goes back into the flow. */
+  function settle(el, from) {
+    if (el.parentElement === from) return;
+    const free = isFree(el.parentElement);
+    if (free && getComputedStyle(el).position !== "absolute") {
+      const r = el.getBoundingClientRect();
+      freePlace(el, el.parentElement, r.left, r.top, true);
+    } else if (!free && from && isFree(from)) put(el, { position: "", left: "", top: "" });
+  }
+  /* ⇧A on a frame without auto layout: direction, gap and padding from how its layers sit, then it hugs them. */
+  function toAuto(frame, dir) {
+    const kids = frameKids(frame);
+    const fit = arrangement(kids);
+    dir = dir ?? fit.dir;
+    const base = { position: getComputedStyle(frame).position === "absolute" ? "absolute" : "", display: "flex", "flex-direction": dir, "align-items": "flex-start", gap: `${kids.length > 1 ? fit.gap : 10}px` };
+    if (kids.length) {
+      const fr = frame.getBoundingClientRect();
+      const z = zoomOf(frame);
+      const rs = kids.map((k) => k.getBoundingClientRect());
+      const edge = (v) => `${Math.max(0, snap(v / z))}px`;
+      const top = Math.min(...rs.map((r) => r.top)) - fr.top - frame.clientTop * z;
+      const left = Math.min(...rs.map((r) => r.left)) - fr.left - frame.clientLeft * z;
+      const bottom = fr.bottom - Math.max(...rs.map((r) => r.bottom)) - frame.clientTop * z;
+      const right = fr.right - Math.max(...rs.map((r) => r.right)) - frame.clientLeft * z;
+      const order = kids.map((k, n) => [k, rs[n]]).sort(([, a], [, b]) => (dir === "row" ? a.left - b.left : a.top - b.top));
+      for (const [k] of order) {
+        put(k, { position: "", left: "", top: "" });
+        frame.append(k);
+      }
+      Object.assign(base, { padding: `${edge(top)} ${edge(right)} ${edge(bottom)} ${edge(left)}`, width: "", height: "" }); // hug, like Figma
+    }
+    put(frame, base);
+    structVersion++;
+  }
+  /* ⌥⇧A: auto layout off. The frame keeps its size and each layer stays where it is, now placed absolutely. */
+  function toFree(frame) {
+    const kids = frameKids(frame).map((k) => [k, k.getBoundingClientRect(), k.offsetWidth]);
+    put(frame, { width: `${frame.offsetWidth}px`, height: `${frame.offsetHeight}px` });
+    put(frame, { display: "", "flex-direction": "", "flex-wrap": "", "align-items": "", "justify-content": "", gap: "", "grid-template-columns": "", padding: "", position: getComputedStyle(frame).position === "absolute" ? "absolute" : "relative" });
+    for (const [k, r, w] of kids) {
+      if (!k.style.width) put(k, { width: `${w}px` }); // a layer that filled or hugged keeps the width it had
+      freePlace(k, frame, r.left, r.top, true);
+    }
+    structVersion++;
+  }
+  /* Arrow keys on a layer in a frame without auto layout: 1px, ⇧ 10px, like Figma. */
+  function freeShift(node, dx, dy) {
+    const cs = getComputedStyle(node);
+    put(node, { left: `${px(cs, "left") + dx}px`, top: `${px(cs, "top") + dy}px` });
+    structVersion++;
+    render();
+    paint();
+  }
 
   /* ================= Structure: duplicate, wrap in auto layout, ungroup, copy and paste ================= */
 
@@ -2659,6 +2762,7 @@
     const copy = cloneNew(el);
     parent.insertBefore(copy, next);
     register(copy, isNew(el) ? addEdits.get(el)?.kind ?? "copy" : "copy");
+    settle(copy, el.parentElement);
     mark(copy);
     return copy;
   }
@@ -2710,6 +2814,7 @@
   function wrap(auto) {
     let els = outermost(selectedAll()).filter(visible);
     if (!els.length) return;
+    if (auto && els.length === 1 && isFree(els[0])) return void batch(() => toAuto(els[0]));
     if (auto && els.length === 1 && layerKids(els[0]).length && !/flex|grid/.test(getComputedStyle(els[0]).display)) {
       setFlow(els[0], arrangement(layerKids(els[0])).dir);
       return;
@@ -2721,17 +2826,33 @@
     }
     els = inDomOrder(els);
     const { dir, gap } = arrangement(els);
+    const first = els[0];
+    const parent = first.parentNode;
+    /* In a frame without auto layout the new frame sits where the selection was, at its size. */
+    const loose = isFree(parent);
+    const rs = els.map((el) => el.getBoundingClientRect());
+    const box = { left: Math.min(...rs.map((r) => r.left)), top: Math.min(...rs.map((r) => r.top)), right: Math.max(...rs.map((r) => r.right)), bottom: Math.max(...rs.map((r) => r.bottom)) };
     const frame = makeNode("frame");
     frame.style.backgroundColor = ""; // a wrapper has no fill of its own
-    if (auto) Object.assign(frame.style, { flexDirection: dir, gap: `${gap}px`, alignItems: dir === "row" ? "center" : "flex-start" });
-    else Object.assign(frame.style, { display: "", flexDirection: "", alignItems: "", gap: "" });
-    const first = els[0];
-    first.parentNode.insertBefore(frame, first);
+    if (auto) Object.assign(frame.style, { display: "flex", flexDirection: dir, gap: `${gap}px`, alignItems: dir === "row" ? "center" : "flex-start" });
+    if (auto || !loose) frame.style.position = ""; // ⌘G in a layout: a plain group, its layers stay in the flow
+    parent.insertBefore(frame, first);
+    register(frame, auto || loose ? "frame" : "group", false); // the frame is new; what it holds stays what it was
+    if (loose) {
+      const z = zoomOf(parent);
+      if (!auto) Object.assign(frame.style, { width: `${Math.round((box.right - box.left) / z)}px`, height: `${Math.round((box.bottom - box.top) / z)}px` });
+      freePlace(frame, parent, box.left, box.top, true);
+    }
     for (const el of els) {
       if (!isNew(el) && !origPos.has(el)) origPos.set(el, { parent: el.parentNode, next: el.nextSibling });
       frame.append(el);
     }
-    register(frame, "frame", false); // the frame is new; what it holds stays what it was
+    batch(() => {
+      for (const [n, el] of els.entries()) {
+        if (loose && !auto) freePlace(el, frame, rs[n].left, rs[n].top, true); // stays where it was, now inside
+        else if (loose) put(el, { position: "", left: "", top: "" });
+      }
+    });
     mark(frame);
     structVersion++;
     select(frame);
@@ -2846,7 +2967,10 @@
   }
   function markup(n, depth = 0) {
     const pad = "   " + "  ".repeat(depth);
-    if (!isNew(n)) return `${pad}{/* existing ${short(n).replace(/ \(in <.*$/, "")}, moved in here */}`;
+    if (!isNew(n)) {
+      const at = isFree(n.parentElement) ? `, placed absolutely at left ${n.style.left}, top ${n.style.top}` : "";
+      return `${pad}{/* existing ${short(n).replace(/ \(in <.*$/, "")}, moved in here${at} */}`;
+    }
     if (dupOf.has(n)) {
       const changes = copyChanges(n);
       return `${pad}{/* copy of ${short(dupOf.get(n))}${changes.length ? `, changed:\n${changes.map((l) => `${pad}     ${l}`).join("\n")}\n${pad}` : " "}*/}`;
@@ -3041,10 +3165,19 @@
   /* ---------- Flow ---------- */
 
   /* Put the element into a slot: its in-flow copy goes there and the original leaves the layout. */
-  function placeFlow(el, container, next) {
+  function placeFlow(el, container, next, at) {
+    const loose = at && isFree(container); // a frame without auto layout: it goes where it was dropped
+    /* Measured before anything moves: taking the element out of its layout can shift the frame. */
+    const spot = loose && freeAt(container, at.x, at.y);
+    const land = (n) => put(n, { position: "absolute", left: `${snap(spot[0])}px`, top: `${snap(spot[1])}px` });
     if (isNew(el)) {
       /* Not in the source yet, so no stand-in copy: the element itself moves. */
-      if (el !== next && !el.contains(container)) container.insertBefore(el, next && next.parentElement === container ? next : null);
+      const from = el.parentElement;
+      if (el !== next && !el.contains(container)) container.insertBefore(el, loose ? null : next && next.parentElement === container ? next : null);
+      batch(() => {
+        if (loose && el.parentElement === container) land(el);
+        else settle(el, from);
+      });
       structVersion++;
       render();
       return paint();
@@ -3057,18 +3190,21 @@
       edit.inflow.style.pointerEvents = "auto";
       edit.inflow.style.visibility = "visible";
       if (/absolute|fixed/.test(getComputedStyle(el).position)) edit.inflow.style.position = "static";
+      edit.inflowPos = { position: edit.inflow.style.position, left: edit.inflow.style.left, top: edit.inflow.style.top };
       inflowOwner.set(edit.inflow, el);
     }
     edit.inflow.remove();
-    if (container === edit.from.container && next === edit.from.next) {
+    Object.assign(edit.inflow.style, edit.inflowPos);
+    if (container === edit.from.container && next === edit.from.next && !loose) {
       unmove(el, edit); // dropped back where it was
       moveEdits.delete(el);
     } else {
-      container.insertBefore(edit.inflow, next && next.parentElement === container ? next : null);
+      container.insertBefore(edit.inflow, loose ? null : next && next.parentElement === container ? next : null);
       el.style.display = "none";
+      if (loose) land(edit.inflow);
       const kids = visibleKids(container, el);
       const index = kids.indexOf(edit.inflow);
-      edit.to = { container, index, prev: kids[index - 1] ?? null, next: kids[index + 1] ?? null, count: kids.length };
+      edit.to = { container, index, prev: kids[index - 1] ?? null, next: kids[index + 1] ?? null, count: kids.length, free: !!loose };
     }
     mark(el);
     render();
@@ -3097,20 +3233,41 @@
     hide.style.visibility = "hidden";
   }
 
+  /* ⌥-drag: a copy comes off the element and follows the pointer; the element stays where it is, like Figma. */
+  function startDupDrag(e, el) {
+    const look = moveEdits.get(el)?.mode === "flow" ? moveEdits.get(el).inflow : el;
+    const r = look.getBoundingClientRect();
+    const copy = addCopy(el, look.parentNode, look.nextSibling);
+    structVersion++;
+    const shown = copy.style.display;
+    copy.style.display = "none"; // out of the layout until it lands
+    const float = floatCopy(look, docRect(r));
+    float.style.opacity = ".9";
+    select(copy);
+    drag = { kind: "flow", el: copy, float, hide: copy, hideVis: copy.style.visibility, shown, dup: true, x: e.clientX, y: e.clientY, r: docRect(r), slot: null };
+  }
+
   function dragFlow(e) {
     drag.float.style.left = `${drag.r.left + e.clientX - drag.x}px`;
     drag.float.style.top = `${drag.r.top + e.clientY - drag.y}px`;
     drag.slot = slotAt(e.clientX, e.clientY, drag.el);
+    drag.slot.free = isFree(drag.slot.container);
     paint();
   }
 
   function dropFlow(cancel) {
-    const { el, float, hide, hideVis, slot } = drag;
+    const { el, float, hide, hideVis, slot, dup, shown } = drag;
     drag = null;
+    const fr = float.getBoundingClientRect();
     float.remove();
     hide.style.visibility = hideVis;
-    if (!cancel && slot) placeFlow(el, slot.container, slot.next);
-    else paint();
+    if (dup && (cancel || !slot)) return removeElement(el); // let go of nothing: no copy
+    if (!cancel && slot) placeFlow(el, slot.container, slot.next, { x: fr.left, y: fr.top });
+    if (dup) {
+      hide.style.display = shown; // shown once it has landed, so the layout around it never jumps first
+      render();
+    }
+    paint();
   }
 
   /* Arrow keys in flow: step one slot earlier or later among the siblings, like Figma's auto layout. */
@@ -3133,6 +3290,10 @@
   function describeFlow(edit) {
     const f = edit.from;
     const t = edit.to;
+    if (t.free) {
+      const cs = edit.inflow.style;
+      return `   move: out of ${short(f.container)} (position ${f.index + 1} of ${f.count})\n   into: the new frame (under Added), which has no auto layout: placed absolutely at left ${cs.left}, top ${cs.top}`;
+    }
     const around = `${t.prev ? `after ${short(t.prev)}` : "first"}${t.next ? `, before ${short(t.next)}` : ""}`;
     if (t.container === f.container) {
       return `   reorder: position ${f.index + 1} → ${t.index + 1} of ${t.count} in ${short(t.container)} (now ${around})`;
@@ -3557,6 +3718,15 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       tagAt(drag.box.getBoundingClientRect(), `${size} <span class="into">· in ${name(c)}</span>`);
       return;
     }
+    if (drag?.kind === "flow" && drag.slot?.free) {
+      /* Into a frame without auto layout: no slot, it lands where you let go. */
+      const s = drag.slot;
+      place(dropBox, s.container);
+      const fr = drag.float.getBoundingClientRect();
+      const [l, t] = freeAt(s.container, fr.left, fr.top);
+      tagAt(fr, `x ${snap(l)}  y ${snap(t)} <span class="into">· in ${name(s.container)}</span>`);
+      return;
+    }
     if (drag?.kind === "flow" && drag.slot) {
       const s = drag.slot;
       const c = s.container.getBoundingClientRect();
@@ -3890,7 +4060,7 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
         else if (a === "absolute") setAbsolute(el, !/absolute|fixed/.test(cs.position));
         else if (a === "rotate90") setRotate(el, rotOf(el) + 90);
         else if (a === "flip-x" || a === "flip-y") flip(el, a.slice(-1));
-        else if (a === "autolayout") setFlow(el, /flex|grid/.test(cs.display) ? "free" : "column");
+        else if (a === "autolayout") setFlow(el, /flex|grid/.test(cs.display) ? "free" : isFree(el) ? "auto" : "column"); // a new frame: direction from its layers
         else if (a === "wrap") setStyle(el, ["flex-wrap"], cs.flexWrap === "wrap" ? "nowrap" : "wrap");
         else if (a === "visible") setStyle(el, ["visibility"], cs.visibility === "hidden" ? "visible" : "hidden");
         else if (a === "add-fill") writeColor(el, "fill", { rgb: [255, 255, 255], a: 1 }); // Figma's default frame fill
@@ -5127,7 +5297,7 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     if (flows.length) {
       const list = flows.map(([, e]) => `${++i}. <${e.tag}> ${where(e)}\n${describeFlow(e)}`);
       sections.push(`Moved in the layout\n\n${list.join("\n\n")}`);
-      how.push("Move the JSX to match (reorder the data if it comes from a .map()). Keep it in normal flow.");
+      how.push(`Move the JSX to match (reorder the data if it comes from a .map()). Keep it in normal flow${[...moveEdits.values()].some((m) => m.to?.free) ? ", except where it says placed absolutely" : ""}.`);
     }
     if (absolutes.length) {
       const list = absolutes
@@ -5159,12 +5329,14 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
         }
         const wraps = [...el.querySelectorAll("*")].some((n) => !isNew(n));
         const name = (KIND_NAMES[kind] ?? "element").toLowerCase();
-        const flow = /flex/.test(getComputedStyle(el).display) ? ` (auto layout, ${getComputedStyle(el).flexDirection.startsWith("column") ? "vertical" : "horizontal"})` : "";
+        const flow = /flex/.test(getComputedStyle(el).display)
+          ? ` (auto layout, ${getComputedStyle(el).flexDirection.startsWith("column") ? "vertical" : "horizontal"})`
+          : isFree(el) && frameKids(el).length ? " (no auto layout: its layers are placed absolutely inside it)" : "";
         return `${++i}. New ${name}${flow}${wraps ? ", wrapping existing elements" : ""}\n${place}\n${markup(el)}`;
       });
       sections.push(`Added\n\n${list.join("\n\n")}`);
       how.push(
-        "Added: build each new element where it says, in the normal layout flow (like auto layout). The markup's inline styles are the exact look: write it the project's way (its components, classes and tokens), not as inline styles. A copy is another instance of that element or component, with the changes listed. Existing elements moved into a new frame keep their own code.",
+        "Added: build each new element where it says, in the normal layout flow (like auto layout); only a frame without auto layout places its layers absolutely. The markup's inline styles are the exact look: write it the project's way (its components, classes and tokens), not as inline styles. A copy is another instance of that element or component, with the changes listed. Existing elements moved into a new frame keep their own code.",
         tokenNote(),
       );
     }
@@ -5353,7 +5525,8 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       if (Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) < 4) return;
       const p = pressed;
       pressed = null;
-      (p.absolute ? startMove : startFlowDrag)({ clientX: p.x, clientY: p.y }, p.target);
+      if (e.altKey && visible(p.target)) startDupDrag({ clientX: p.x, clientY: p.y }, p.target); // ⌥-drag duplicates, like Figma
+      else (p.absolute ? startMove : startFlowDrag)({ clientX: p.x, clientY: p.y }, p.target);
     }
     if (drag?.kind === "move") return dragMove(e);
     if (drag?.kind === "flow") return dragFlow(e);
@@ -5386,8 +5559,8 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     const sel = visible(selected);
     const all = () => outermost(selectedAll());
     if (mod) {
+      if (code === "KeyD" && !e.altKey && !e.shiftKey) return duplicate(), true; // ⌘D duplicate (never the browser's bookmark)
       if (!sel && !(code === "KeyV" && !e.altKey && clip.length)) return false;
-      if (code === "KeyD" && !e.altKey && !e.shiftKey) return duplicate(), true; // ⌘D duplicate
       if (code === "KeyG" && e.shiftKey) return ungroup(), true; // ⌘⇧G ungroup
       if (code === "KeyG") return wrap(false), true; // ⌘G group, ⌘⌥G frame selection
       if (code === "KeyC" && e.altKey) return copyLook(), true; // ⌘⌥C copy properties
@@ -5525,6 +5698,11 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       }
       if (tool === "move" && /^Arrow/.test(e.key)) {
         take();
+        const node = moveEdits.get(selected)?.inflow ?? selected;
+        if (isFree(node.parentElement) && getComputedStyle(node).position === "absolute") {
+          const step = e.shiftKey ? 10 : 1;
+          return freeShift(node, e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0, e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0);
+        }
         if (!moveAbsolute) return flowNudge(selected, e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 1);
         const edit = moveEdits.get(selected)?.mode === "absolute" ? moveEdits.get(selected) : null;
         const step = e.shiftKey ? 10 : e.altKey || e.metaKey ? 1 : GRID;

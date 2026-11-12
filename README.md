@@ -46,7 +46,7 @@ The toolbar follows Figma's: **Select**, **Frame**, **Shape** and **Text**, each
 | --- | --- |
 | `V` | **Select**: click anything to select it (the toolkit opens on Select), drag its corner handle to change the radius, drag it into any container to reorder or re-parent; arrows reorder. A **Layers** tree shows top left while something is selected |
 | `M` | **Move** (in Select's group): place anything freely; the prompt asks for position: absolute, with an annotated screenshot of the page |
-| `F` / `A` | **Frame**: draw an auto layout frame (vertical, 10 gap, white fill, Figma's defaults) |
+| `F` / `A` | **Frame**: draw a frame (white fill, no auto layout, Figma's defaults); `⇧A` turns auto layout on |
 | `P` | **Placeholder** (in Frame's group): draw a striped box and write what it should contain in its **Desc** label (click the label later to change it) |
 | `R` | **Rectangle**: draw a box, #D9D9D9 like Figma's |
 | `L` | **Line**: draw a 1px divider along the longer axis |
@@ -55,16 +55,17 @@ The toolbar follows Figma's: **Select**, **Frame**, **Shape** and **Text**, each
 | `S` | **Spacing**: click any element, drag its padding (green), margin (orange) or gap (purple) bands, click a number to type |
 | `C` | **Comment**: click any element, or select some text, and type a note; `↵` adds it, `⇧↵` for a new line. Numbered pins mark each comment, click one to edit or delete it |
 
-**Drawing** works like auto layout, not like a free canvas: the new layer goes into the page's flow as soon as you start dragging, in the slot where you pressed, and grows there as you drag, so the layout around it reflows live and what you see is where it lands. A label shows its size and container. Starting inside a frame puts the layer inside it. A click instead of a drag makes a 100 × 100 layer. `⇧` keeps it square (a circle, for Ellipse), `⌥` draws from the centre, `⌘` leaves the grid, `Esc` cancels. Then Select takes over with the new layer selected, so the side panel styles it: fill, stroke, radius, auto layout, size, padding, effects.
+**Drawing** works like auto layout, not like a free canvas: the new layer goes into the page's flow as soon as you start dragging, in the slot where you pressed, and grows there as you drag, so the layout around it reflows live and what you see is where it lands. A label shows its size and container. Starting inside a frame puts the layer inside it. A frame without auto layout is the exception, as in Figma: what you draw or drop into it stays exactly where you put it (placed absolutely inside the frame), and arrow keys nudge it 1px (`⇧` 10px). A click instead of a drag makes a 100 × 100 layer. `⇧` keeps it square (a circle, for Ellipse), `⌥` draws from the centre, `⌘` leaves the grid, `Esc` cancels. Then Select takes over with the new layer selected, so the side panel styles it: fill, stroke, radius, auto layout, size, padding, effects.
 
 | Layer shortcut | Does |
 | --- | --- |
-| `⌘D` | duplicate the selection, right after itself |
+| `⌘D` | duplicate the selection, right after itself (in a frame without auto layout, on top of itself) |
+| `⌥`-drag | drag a copy off the layer, leaving the original in place |
 | `⌘C` / `⌘V` | copy layers, paste into the selected frame or after the selection |
 | `⌘⌥C` / `⌘⌥V` | copy and paste properties (fill, stroke, radius, effects, opacity, and type between text layers) |
-| `⇧A` | wrap the selection in a new auto layout frame (direction and gap read from how the layers sit); on a frame without auto layout, add it |
-| `⌥⇧A` | remove auto layout |
-| `⌘⌥G` / `⌘G` | wrap the selection in a plain frame |
+| `⇧A` | wrap the selection in a new auto layout frame (direction and gap read from how the layers sit); on a frame without auto layout, turn it on: its layers line up in the order they sit, with the gap and padding they had, and the frame hugs them |
+| `⌥⇧A` | remove auto layout; on a frame made here, every layer stays where it is |
+| `⌘⌥G` / `⌘G` | wrap the selection in a plain frame (inside a frame without auto layout, a frame around the layers that keeps them where they are) |
 | `⌘⇧G` | ungroup a frame made here: its children take its place |
 | `⌘]` / `⌘[` | one step later or earlier in the layout; with `⇧`, to the end or the start |
 | `⌘A` | select every layer next to the selection |
