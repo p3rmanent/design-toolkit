@@ -508,6 +508,7 @@
       .panel .f:hover { box-shadow: inset 0 0 0 1px var(--line); }
       .panel .f:focus-within { box-shadow: inset 0 0 0 1px var(--fblue); }
       .panel .k { flex: none; display: grid; place-items: center; width: 24px; height: 24px; color: var(--fg2); cursor: ew-resize; }
+      .panel .k.t { width: auto; padding: 0 6px 0 8px; font-size: 11px; white-space: nowrap; }
       .panel .f input { all: unset; flex: 1; min-width: 0; height: 24px; padding-right: 6px; color: rgba(var(--ink-rgb), .9); font: inherit; font-variant-numeric: tabular-nums; cursor: default; }
       .panel .f input:focus { cursor: text; }
       .panel .f input:placeholder-shown { color: var(--fg2); }
@@ -698,8 +699,16 @@
         </div>
         <div class="lbl"><span>Resizing</span></div>
         <div class="row">
-          <label class="f" data-f="width" title="Width"><span class="k">W</span><input inputmode="decimal" aria-label="Width"><span class="mode"><span class="mt"></span>${PI.chevron}<select data-mode="width" aria-label="Width resizing"><option value="fixed">Fixed width</option><option value="hug">Hug contents</option><option value="fill">Fill container</option></select></span></label>
-          <label class="f" data-f="height" title="Height"><span class="k">H</span><input inputmode="decimal" aria-label="Height"><span class="mode"><span class="mt"></span>${PI.chevron}<select data-mode="height" aria-label="Height resizing"><option value="fixed">Fixed height</option><option value="hug">Hug contents</option><option value="fill">Fill container</option></select></span></label>
+          <label class="f" data-f="width" title="Width"><span class="k">W</span><input inputmode="decimal" aria-label="Width"><span class="mode"><span class="mt"></span>${PI.chevron}<select data-mode="width" aria-label="Width resizing"><option value="fixed">Fixed width</option><option value="hug">Hug contents</option><option value="fill">Fill container</option><hr><option value="min-width">Add min width…</option><option value="max-width">Add max width…</option></select></span></label>
+          <label class="f" data-f="height" title="Height"><span class="k">H</span><input inputmode="decimal" aria-label="Height"><span class="mode"><span class="mt"></span>${PI.chevron}<select data-mode="height" aria-label="Height resizing"><option value="fixed">Fixed height</option><option value="hug">Hug contents</option><option value="fill">Fill container</option><hr><option value="min-height">Add min height…</option><option value="max-height">Add max height…</option></select></span></label>
+        </div>
+        <div class="row" data-g="lim-w" hidden>
+          <label class="f" data-f="min-width" title="Min width"><span class="k t">Min W</span><input inputmode="decimal" aria-label="Min width" placeholder="None"></label>
+          <label class="f" data-f="max-width" title="Max width"><span class="k t">Max W</span><input inputmode="decimal" aria-label="Max width" placeholder="None"></label>
+        </div>
+        <div class="row" data-g="lim-h" hidden>
+          <label class="f" data-f="min-height" title="Min height"><span class="k t">Min H</span><input inputmode="decimal" aria-label="Min height" placeholder="None"></label>
+          <label class="f" data-f="max-height" title="Max height"><span class="k t">Max H</span><input inputmode="decimal" aria-label="Max height" placeholder="None"></label>
         </div>
         <div data-g="align">
           <div class="lbl"><span>Alignment</span><span data-g="gap">Gap</span></div>
@@ -2017,6 +2026,34 @@
       const box = cs.boxSizing === "content-box" ? sides.reduce((t, s) => t + px(cs, `padding-${s}`) + px(cs, `border-${s}-width`), 0) : 0;
       setStyle(el, [f], `${Math.round(Math.max(0, (v ?? sizeOf(el, f)) - box) * 10) / 10}px`, was !== "fixed"); // Fixed on purpose stays, even at the same size
     });
+  }
+
+  /* ---------- Min and max width and height, like Figma's: a limit the layer never resizes past ---------- */
+
+  const LIMITS = ["min-width", "max-width", "min-height", "max-height"];
+  /* Set: a min that is not auto or 0, a max that is not none (from the page's CSS or from here). */
+  const limitOf = (el, f) => {
+    const v = getComputedStyle(el).getPropertyValue(f);
+    return v === "none" || v === "auto" || (f.startsWith("min") && parseFloat(v) === 0) ? null : v;
+  };
+  /* v: a size in px (border box, like W and H), or null to remove the limit. */
+  function setLimit(el, f, v) {
+    if (!(el instanceof HTMLElement)) return;
+    const off = f.startsWith("max") ? "none" : "auto";
+    if (v == null) {
+      unsetStyle(el, f); // a limit added here just goes
+      if (limitOf(el, f)) setStyle(el, [f], off, false, `${off} (no ${f.replace("-", " ")})`); // the page's own one is lifted
+      return;
+    }
+    const cs = getComputedStyle(el);
+    const sides = f.endsWith("width") ? ["left", "right"] : ["top", "bottom"];
+    const box = cs.boxSizing === "content-box" ? sides.reduce((t, s) => t + px(cs, `padding-${s}`) + px(cs, `border-${s}-width`), 0) : 0;
+    setStyle(el, [f], `${Math.round(Math.max(0, v - box) * 10) / 10}px`, true);
+  }
+  /* The W or H menu: add a limit at the current size (as Figma does), or remove it. */
+  function toggleLimit(el, f) {
+    if (limitOf(el, f)) setLimit(el, f, null);
+    else setLimit(el, f, sizeOf(el, f.slice(4)));
   }
 
   /* ---------- Flow and alignment ---------- */
@@ -3956,7 +3993,7 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
      with ↑ ↓ (⇧ 10, ⌥/⌘ 1px), or drag the field's label to scrub, like Figma. */
   const TYPE_FIELDS = new Set(["font-family", "font-weight", "font-size", "line-height", "letter-spacing", "text-align", "align-content"]);
   /* Plain numbers, off the 2px grid: percentages, degrees and sizes. */
-  const NUM_FIELDS = new Set(["x", "y", "opacity", "rotate", "width", "height", "fill-alpha", "border-alpha"]);
+  const NUM_FIELDS = new Set(["x", "y", "opacity", "rotate", "width", "height", ...LIMITS, "fill-alpha", "border-alpha"]);
   const isNum = (f) => NUM_FIELDS.has(f) || /^sc-\d+-alpha$/.test(f);
   const freeField = (f) => TYPE_FIELDS.has(f) || isNum(f);
   const firstFamily = (stack) => stack.split(",")[0].replace(/["']/g, "").trim();
@@ -3994,6 +4031,14 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     if (f === "rotate") return `${rotOf(selected)}°`;
     if (f === "opacity") return `${Math.round(parseFloat(cs.opacity) * 100)}%`;
     if (f === "width" || f === "height") return `${Math.round(sizeOf(selected, f) * 10) / 10}`;
+    if (LIMITS.includes(f)) {
+      const v = limitOf(selected, f);
+      if (!v) return "";
+      if (!v.endsWith("px")) return v; // a percentage or calc() from the page shows as written
+      const sides = f.endsWith("width") ? ["left", "right"] : ["top", "bottom"];
+      const box = cs.boxSizing === "content-box" ? sides.reduce((t, s) => t + px(cs, `padding-${s}`) + px(cs, `border-${s}-width`), 0) : 0;
+      return `${Math.round((parseFloat(v) + box) * 10) / 10}`;
+    }
     const color = f.match(/^(fill|border)(-color)?(-alpha)?$/);
     if (color && f !== "border") {
       const which = color[1] === "fill" ? "fill" : "border-color";
@@ -4043,6 +4088,7 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
         else if (f === "rotate") setRotate(el, v);
         else if (f === "x" || f === "y") /absolute|fixed/.test(getComputedStyle(el).position) && el.parentElement && setXY(el, f, v);
         else if (f === "width" || f === "height") setSize(el, f, "fixed", Math.max(0, v));
+        else if (LIMITS.includes(f)) setLimit(el, f, v);
         else if (f === "flow") setFlow(el, v);
         else if (f === "gap") {
           if (/space-between/.test(getComputedStyle(el).justifyContent)) setGapMode(el, "fixed"); // a number means a fixed gap
@@ -4090,6 +4136,7 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
     if (input.readOnly) return;
     const f = input.closest(".f").dataset.f;
     const raw = input.value.trim().toLowerCase();
+    if (selected && raw === "" && LIMITS.includes(f)) return readField(f) !== "" && writeField(f, null); // cleared: no limit, like Figma
     if (!selected || raw === "" || raw === "mixed") return;
     if (f === "fill" || f === "border-color" || /^sc-\d+$/.test(f)) return raw !== readField(f).toLowerCase() && writeField(f, raw);
     if (f === "radius" && (raw === "full" || raw === "f")) return writeField(f, Infinity);
@@ -4234,6 +4281,18 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
       const label = { fill: "Fill", hug: "Hug", fixed: "" }[m];
       if (mt.textContent !== label) mt.textContent = label;
       hide(box.parentElement.querySelector("svg"), m !== "fixed");
+      /* Min and max: their fields show once set; the menu offers Add or Remove, as Figma's does. */
+      const lims = ["min", "max"].map((k) => `${k}-${f}`);
+      for (const l of lims) {
+        const on = !!limitOf(selected, l);
+        const opt = box.querySelector(`option[value="${l}"]`);
+        const text = `${on ? "Remove" : "Add"} ${l.replace("-", " ")}${on ? "" : "…"}`;
+        if (opt.textContent !== text) opt.textContent = text;
+        const field = q(`[data-f="${l}"]`);
+        hide(field, !on && !field.contains(root.activeElement));
+      }
+      const row = q(`[data-g="lim-${f[0]}"]`);
+      hide(row, [...row.children].every((c) => c.hidden));
     }
 
     /* Appearance */
@@ -4388,13 +4447,20 @@ Use the Figma MCP server for this (its generate_figma_design capture), not a scr
   panel.addEventListener("focusout", (e) => {
     const input = e.target.closest?.("input");
     if (input && selected && input.closest(".f")) applyFieldInput(input);
+    if (input && LIMITS.includes(input.closest(".f")?.dataset.f)) setTimeout(paint); // an empty min or max field goes once you leave it
   });
   panel.addEventListener("focusin", (e) => e.target.select?.());
   panel.addEventListener("change", (e) => {
     const t = e.target;
     if (!selected) return;
     if (t.closest(".f.sel select")) writeField(t.closest(".f").dataset.f, t.value);
-    else if (t.matches("[data-mode]")) batch(() => selectedAll().forEach((el) => setSize(el, t.dataset.mode, t.value)));
+    else if (t.matches("[data-mode]") && LIMITS.includes(t.value)) {
+      const f = t.value;
+      const adding = !limitOf(selected, f);
+      t.value = sizeModes[t.dataset.mode];
+      batch(() => selectedAll().forEach((el) => (adding ? !limitOf(el, f) : limitOf(el, f)) && toggleLimit(el, f)));
+      if (adding) panel.querySelector(`[data-f="${f}"] input`)?.focus(); // type the limit right away
+    } else if (t.matches("[data-mode]")) batch(() => selectedAll().forEach((el) => setSize(el, t.dataset.mode, t.value)));
     else if (t.matches("[data-gapmode]")) batch(() => selectedAll().forEach((el) => setGapMode(el, t.value)));
     else if (t.matches('[data-act="clip"]')) {
       batch(() =>
